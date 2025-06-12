@@ -1,4 +1,7 @@
-import os  # تمت إضافة هذا الاستيراد
+import os
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # تعطيل تحذيرات TensorFlow
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'   # تقليل سجل TensorFlow
+
 import tensorflow as tf
 import ccxt
 import pandas as pd
@@ -10,19 +13,24 @@ from flask import Flask, render_template
 import threading
 from datetime import datetime
 from sklearn.preprocessing import MinMaxScaler
+from dotenv import load_dotenv
+
+# تحميل المتغيرات البيئية
+load_dotenv()
+
+# التحقق من وجود المفاتيح API
+API_KEY = os.getenv('COINEX_API_KEY')
+API_SECRET = os.getenv('COINEX_API_SECRET')
+
+if not API_KEY or not API_SECRET:
+    raise ValueError("API keys missing! Please check your .env file")
 
 app = Flask(__name__)
 
-# === إعدادات CoinEx API ===
-exchange = ccxt.coinex({
-    'apiKey': os.environ.get('COINEX_API_KEY'),
-    'secret': os.environ.get('COINEX_API_SECRET'),
-})
-
-# === تحميل النموذج ==
+# تهيئة نموذج التداول
 model = load_model("yazbekw.keras")
 
-# === إعدادات التداول ===
+# إعدادات التداول
 symbol = 'BTC/USDT'
 investment_usdt = 9
 open_trade = {
@@ -33,55 +41,62 @@ open_trade = {
 }
 trade_history = []
 
-# === الحصول على البيانات ===
+# إنشاء اتصال بـ CoinEx
+def create_exchange():
+    return ccxt.coinex({
+        'apiKey': API_KEY,
+        'secret': API_SECRET,
+        'enableRateLimit': True,
+        'options': {'createMarketBuyOrderRequiresPrice': False}
+    })
+
+# اتصال رئيسي لعمليات التداول
+exchange = create_exchange()
+
+# === وظائف التداول ===
 def get_live_data():
+    """جلب بيانات السوق الحية"""
     bars = exchange.fetch_ohlcv(symbol, timeframe='1h', limit=100)
     df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
     df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
     return df
 
-# === تحضير البيانات ===
 def prepare_features(df):
+    """تحضير البيانات للنموذج"""
     df = df.copy()
-
+    
     # حساب المؤشرات الفنية
     df['MA_10'] = df['close'].rolling(window=10).mean()
     df['MA_50'] = df['close'].rolling(window=50).mean()
 
+    # حساب RSI
     delta = df['close'].diff()
     gain = delta.where(delta > 0, 0).rolling(window=14).mean()
     loss = -delta.where(delta < 0, 0).rolling(window=14).mean()
     rs = gain / loss
     df['RSI'] = 100 - (100 / (1 + rs))
-
-    # إزالة الصفوف غير الكاملة
+    
     df.dropna(inplace=True)
-
-    # اختيار الميزات المطلوبة
+    
     features = ['open', 'high', 'low', 'close', 'volume', 'MA_10', 'MA_50', 'RSI']
-    data = df[features].tail(24)  # نأخذ آخر 24 ساعة
-
-    # التحقق من وجود 24 صف
+    data = df[features].tail(24)
+    
     if len(data) < 24:
-        raise ValueError("ليس هناك عدد كافٍ من الصفوف (نحتاج 24 صفًا على الأقل)")
-
-    # تطبيع البيانات
+        raise ValueError("لا يوجد بيانات كافية (24 ساعة مطلوبة)")
+    
     scaler = MinMaxScaler()
     scaled = scaler.fit_transform(data)
+    return np.reshape(scaled, (1, 24, len(features)))
 
-    # إعادة تشكيل البيانات: (1, 24, 8)
-    X = np.reshape(scaled, (1, 24, len(features)))
-    return X
-    
-# === التنبؤ ===
 def predict_signal():
+    """توليد إشارة التداول"""
     df = get_live_data()
     X = prepare_features(df)
     prediction = model.predict(X, verbose=0)
     return (prediction > 0.5).astype(int)[0][0]
 
-# === تنفيذ الصفقة ===
 def execute_trade(signal):
+    """تنفيذ صفقة بناء على الإشارة"""
     global open_trade, trade_history
     
     current_price = exchange.fetch_ticker(symbol)['last']
@@ -102,7 +117,7 @@ def execute_trade(signal):
                 'amount': amount,
                 'time': open_trade['buy_time']
             })
-            print(f"[BUY] {amount:.8f} {symbol.split('/')[0]} at ${current_price:.2f}")
+            print(f"[BUY] {amount:.8f} BTC at ${current_price:.2f}")
         except Exception as e:
             print(f"[BUY ERROR] {e}")
     
@@ -117,33 +132,49 @@ def execute_trade(signal):
                 'time': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 'profit': profit
             })
-            print(f"[SELL] Sold {open_trade['amount']:.8f} {symbol.split('/')[0]} at ${current_price:.2f}")
+            print(f"[SELL] {open_trade['amount']:.8f} BTC at ${current_price:.2f}")
             print(f"Profit: ${profit:.2f}")
             open_trade['is_open'] = False
         except Exception as e:
             print(f"[SELL ERROR] {e}")
 
-# === المهمة الدورية ===
+# === واجهة المستخدم ===
+@app.route('/')
+def dashboard():
+    """لوحة التحكم الرئيسية"""
+    local_exchange = create_exchange()
+    
+    try:
+        balance = local_exchange.fetch_balance()
+        processed_balance = {
+            'free': {
+                'USDT': balance.get('USDT', {}).get('free', 0),
+                'BTC': balance.get('BTC', {}).get('free', 0)
+            },
+            'total': balance.get('total', {})
+        }
+    except Exception as e:
+        print(f"Error fetching balance: {e}")
+        processed_balance = {'free': {'USDT': 0, 'BTC': 0}, 'total': {}}
+    
+    return render_template('dashboard.html',
+                         open_trade=open_trade,
+                         balance=processed_balance,
+                         trades=trade_history,
+                         symbol=symbol)
+
+# === تشغيل البوت ===
 def trading_job():
+    """المهمة الدورية للتداول"""
     print("جارٍ التحقق من السوق...")
     try:
         signal = predict_signal()
         execute_trade(signal)
     except Exception as e:
-        print(f"[ERROR] حدث خطأ أثناء التشغيل: {e}")
+        print(f"[ERROR] {e}")
 
-# === واجهة المراقبة ===
-@app.route('/')
-def dashboard():
-    balance = exchange.fetch_balance()
-    return render_template('dashboard.html',
-                         open_trade=open_trade,
-                         balance=balance,
-                         trades=trade_history,
-                         symbol=symbol)
-
-# === تشغيل البوت ===
 def run_bot():
+    """تشغيل البوت في الخلفية"""
     schedule.every().hour.at(":00").do(trading_job)
     while True:
         schedule.run_pending()
