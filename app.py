@@ -17,16 +17,9 @@ exchange = ccxt.coinex({
     'secret': os.environ.get('COINEX_API_SECRET'),
 })
 
-# === تحميل النموذج ===
-try:
-    import tensorflow as tf
-    print(f"TensorFlow version: {tf.__version__}")
-    print(f"Keras version: {tf.keras.__version__}")
-    model = tf.keras.models.load_model('yazbekw.h5', compile=False)
-    print("تم تحميل النموذج بنجاح")
-except Exception as e:
-    print(f"خطأ في تحميل النموذج: {str(e)}")
-    raise
+# === تحميل النموذج ==
+model = tf.keras.models.load_model('yazbekw.keras', compile=False)
+
 
 # === إعدادات التداول ===
 symbol = 'BTC/USDT'
