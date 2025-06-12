@@ -17,7 +17,7 @@ exchange = ccxt.coinex({
 })
 
 # === تحميل النموذج ===
-model = load_model('yazbekw.keras')
+model = load_model('yazbekw.h5')
 
 # === إعدادات التداول ===
 symbol = 'BTC/USDT'
