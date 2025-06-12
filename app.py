@@ -218,6 +218,12 @@ def dashboard():
     # حساب وقت الفحص التالي
     next_check = (datetime.now() + timedelta(minutes=60 - datetime.now().minute)).strftime("%H:%M:%S")
     
+    # معالجة last_updated بشكل آمن
+    last_updated = cached_market_data.get('last_updated')
+    if last_updated is None:
+        last_updated = datetime.now()
+    last_updated_str = last_updated.strftime("%Y-%m-%d %H:%M:%S")
+    
     return render_template('dashboard.html',
                         open_trade=open_trade,
                         balance=processed_balance,
@@ -227,8 +233,8 @@ def dashboard():
                         current_profit=current_profit,
                         last_signal=last_signal,
                         next_check=next_check,
-                        last_updated=cached_market_data.get('last_updated', datetime.now()).strftime("%Y-%m-%d %H:%M:%S"))
-
+                        last_updated=last_updated_str)
+                        
 @app.route('/dashboard-data')
 def dashboard_data():
     # استخدام البيانات المخزنة مؤقتاً
@@ -254,6 +260,12 @@ def dashboard_data():
     
     next_check = (datetime.now() + timedelta(minutes=60 - datetime.now().minute)).strftime("%H:%M:%S")
     
+    # معالجة last_updated بشكل آمن
+    last_updated = cached_market_data.get('last_updated')
+    if last_updated is None:
+        last_updated = datetime.now()
+    last_updated_str = last_updated.strftime("%Y-%m-%d %H:%M:%S")
+    
     return jsonify({
         'open_trade': open_trade,
         'balance': processed_balance,
@@ -262,7 +274,7 @@ def dashboard_data():
         'current_profit': current_profit,
         'last_signal': last_signal,
         'next_check': next_check,
-        'last_updated': cached_market_data.get('last_updated', datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
+        'last_updated': last_updated_str
     })
 
 # === تشغيل البوت ===
