@@ -9,3 +9,5 @@ services:
         value: your_coinex_api_key
       - key: SECRET_KEY
         value: your_coinex_secret_key
+    gunicorn: app:app --bind 0.0.0.0:$PORT
+
