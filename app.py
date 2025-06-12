@@ -1,3 +1,4 @@
+import os  # تمت إضافة هذا الاستيراد
 import ccxt
 import pandas as pd
 import numpy as np
@@ -17,7 +18,7 @@ exchange = ccxt.coinex({
 })
 
 # === تحميل النموذج ===
-model = load_model('yazbekw.h5')
+model = load_model('yazbekw.h5')  # استخدم نوع ملف واحد فقط
 
 # === إعدادات التداول ===
 symbol = 'BTC/USDT'
