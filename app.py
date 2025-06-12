@@ -288,6 +288,13 @@ def trading_job():
         logging.error(f"[ERROR] {e}")
 
 def run_bot():
+    while True:
+        try:
+            schedule.run_pending()
+            time.sleep(1)
+        except Exception as e:
+            logging.error(f"خطأ في الجدولة: {e}")
+            
     """تشغيل البوت في الخلفية"""
     # التهيئة الأولية
     update_market_data()
