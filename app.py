@@ -1,4 +1,5 @@
 import os  # تمت إضافة هذا الاستيراد
+import tensorflow as tf
 import ccxt
 import pandas as pd
 import numpy as np
