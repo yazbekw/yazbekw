@@ -3,17 +3,26 @@ os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 import tensorflow as tf
+# تحسين استخدام ذاكرة GPU إن وجدت
+physical_devices = tf.config.list_physical_devices('GPU')
+if physical_devices:
+    tf.config.experimental.set_memory_growth(physical_devices[0], True)
+
 import ccxt
 import pandas as pd
 import numpy as np
 from tensorflow.keras.models import load_model
 import schedule
 import time
-from flask import Flask, render_template, jsonify  # تمت إضافة jsonify هنا
+from flask import Flask, render_template, jsonify
 import threading
-from datetime import datetime, timedelta  # تمت إضافة timedelta هنا
+from datetime import datetime, timedelta
 from sklearn.preprocessing import MinMaxScaler
 from dotenv import load_dotenv
+import logging
+
+# إعدادات التسجيل
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # تحميل المتغيرات البيئية
 load_dotenv()
@@ -53,13 +62,31 @@ def create_exchange():
 # اتصال رئيسي لعمليات التداول
 exchange = create_exchange()
 
+# === متغيرات للتخزين المؤقت ===
+cached_market_data = {
+    'balance': None,
+    'ticker': None,
+    'ohlcv': None,
+    'last_prediction': None,
+    'last_updated': None
+}
+
 # === وظائف التداول ===
 def get_live_data():
     """جلب بيانات السوق الحية"""
-    bars = exchange.fetch_ohlcv(symbol, timeframe='1h', limit=100)
-    df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-    return df
+    try:
+        bars = exchange.fetch_ohlcv(symbol, timeframe='1h', limit=100)
+        df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        return df
+    except Exception as e:
+        logging.error(f"فشل جلب البيانات: {e}")
+        # إرجاع بيانات مخزنة مؤقتاً كحل بديل
+        return cached_market_data.get('ohlcv', pd.DataFrame())
+
+# تجهيز Scaler واحد فقط
+scaler = MinMaxScaler()
+features = ['open', 'high', 'low', 'close', 'volume', 'MA_10', 'MA_50', 'RSI']
 
 def prepare_features(df):
     """تحضير البيانات للنموذج"""
@@ -78,14 +105,17 @@ def prepare_features(df):
     
     df.dropna(inplace=True)
     
-    features = ['open', 'high', 'low', 'close', 'volume', 'MA_10', 'MA_50', 'RSI']
     data = df[features].tail(24)
     
     if len(data) < 24:
         raise ValueError("لا يوجد بيانات كافية (24 ساعة مطلوبة)")
     
-    scaler = MinMaxScaler()
-    scaled = scaler.fit_transform(data)
+    # استخدام Scaler واحد مع التحقق من تركيبته
+    if not hasattr(prepare_features, 'fitted'):
+        scaler.fit(data)
+        prepare_features.fitted = True
+    
+    scaled = scaler.transform(data)
     return np.reshape(scaled, (1, 24, len(features)))
 
 def predict_signal():
@@ -117,9 +147,9 @@ def execute_trade(signal):
                 'amount': amount,
                 'time': open_trade['buy_time']
             })
-            print(f"[BUY] {amount:.8f} BTC at ${current_price:.2f}")
+            logging.info(f"[BUY] {amount:.8f} BTC at ${current_price:.2f}")
         except Exception as e:
-            print(f"[BUY ERROR] {e}")
+            logging.error(f"[BUY ERROR] {e}")
     
     elif signal == 0 and open_trade['is_open']:  # بيع
         try:
@@ -132,148 +162,132 @@ def execute_trade(signal):
                 'time': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 'profit': profit
             })
-            print(f"[SELL] {open_trade['amount']:.8f} BTC at ${current_price:.2f}")
-            print(f"Profit: ${profit:.2f}")
+            logging.info(f"[SELL] {open_trade['amount']:.8f} BTC at ${current_price:.2f}")
+            logging.info(f"Profit: ${profit:.2f}")
             open_trade['is_open'] = False
         except Exception as e:
-            print(f"[SELL ERROR] {e}")
+            logging.error(f"[SELL ERROR] {e}")
+
+# === وظائف التحديث ===
+def update_market_data():
+    """تحديث بيانات السوق المخزنة مؤقتاً"""
+    try:
+        cached_market_data['balance'] = exchange.fetch_balance()
+        cached_market_data['ticker'] = exchange.fetch_ticker(symbol)
+        cached_market_data['ohlcv'] = exchange.fetch_ohlcv(symbol, timeframe='1h', limit=100)
+        cached_market_data['last_updated'] = datetime.now()
+        logging.info("تم تحديث بيانات السوق بنجاح")
+    except Exception as e:
+        logging.error(f"فشل تحديث بيانات السوق: {e}")
+
+def update_prediction():
+    """تحديث الإشارة التنبؤية المخزنة مؤقتاً"""
+    try:
+        cached_market_data['last_prediction'] = predict_signal()
+        logging.info(f"تم تحديث التنبؤ: {cached_market_data['last_prediction']}")
+    except Exception as e:
+        logging.error(f"فشل تحديث التنبؤ: {e}")
 
 # === واجهة المستخدم ===
-# ... (الاستيرادات الموجودة تبقى كما هي)
-
 @app.route('/')
 def dashboard():
-    # إنشاء نسخة محلية من exchange للاستخدام في هذا الطلب
-    local_exchange = ccxt.coinex({
-        'apiKey': API_KEY,
-        'secret': API_SECRET,
-        'enableRateLimit': True
-    })
+    # استخدام البيانات المخزنة مؤقتاً
+    balance = cached_market_data.get('balance', {})
+    ticker = cached_market_data.get('ticker', {})
     
-    try:
-        # جلب البيانات الحية
-        balance = local_exchange.fetch_balance()
-        ticker = local_exchange.fetch_ticker(symbol)
-        current_price = ticker['last']
-        
-        # معالجة الرصيد
-        processed_balance = {
-            'free': {
-                'USDT': balance.get('USDT', {}).get('free', 0),
-                'BTC': balance.get('BTC', {}).get('free', 0)
-            },
-            'total': balance.get('total', {})
-        }
-        
-        # حساب الربح الحالي إذا كانت هناك صفقة مفتوحة
-        current_profit = 0
-        if open_trade['is_open']:
-            current_profit = (current_price - open_trade['buy_price']) * open_trade['amount']
-        
-        # الحصول على آخر إشارة
-        try:
-            last_signal = "شراء" if predict_signal() else "بيع"
-        except:
-            last_signal = "غير معروف"
-        
-        # حساب وقت الفحص التالي (نفس منطق البوت)
-        next_check = (datetime.now() + timedelta(minutes=60 - datetime.now().minute)).strftime("%H:%M:%S")
-        
-        return render_template('dashboard.html',
-                            open_trade=open_trade,
-                            balance=processed_balance,
-                            trades=trade_history,
-                            symbol=symbol,
-                            current_price=current_price,
-                            current_profit=current_profit,
-                            last_signal=last_signal,
-                            next_check=next_check,
-                            last_updated=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    # معالجة الرصيد
+    processed_balance = {
+        'free': {
+            'USDT': balance.get('USDT', {}).get('free', 0) if balance else 0,
+            'BTC': balance.get('BTC', {}).get('free', 0) if balance else 0
+        },
+        'total': balance.get('total', {}) if balance else {}
+    }
     
-    except Exception as e:
-        print(f"Error in dashboard: {e}")
-        # في حالة الخطأ، نعود بيانات افتراضية
-        return render_template('dashboard.html',
-                            open_trade=open_trade,
-                            balance={'free': {'USDT': 0, 'BTC': 0}, 'total': {}},
-                            trades=trade_history,
-                            symbol=symbol,
-                            current_price=0,
-                            current_profit=0,
-                            last_signal="خطأ في الجلب",
-                            next_check="--:--:--",
-                            last_updated=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    # حساب الربح الحالي إذا كانت هناك صفقة مفتوحة
+    current_price = ticker.get('last', 0) if ticker else 0
+    current_profit = 0
+    if open_trade['is_open']:
+        current_profit = (current_price - open_trade['buy_price']) * open_trade['amount']
+    
+    # الحصول على آخر إشارة
+    last_signal = "غير معروف"
+    if cached_market_data['last_prediction'] is not None:
+        last_signal = "شراء" if cached_market_data['last_prediction'] == 1 else "بيع"
+    
+    # حساب وقت الفحص التالي
+    next_check = (datetime.now() + timedelta(minutes=60 - datetime.now().minute)).strftime("%H:%M:%S")
+    
+    return render_template('dashboard.html',
+                        open_trade=open_trade,
+                        balance=processed_balance,
+                        trades=trade_history,
+                        symbol=symbol,
+                        current_price=current_price,
+                        current_profit=current_profit,
+                        last_signal=last_signal,
+                        next_check=next_check,
+                        last_updated=cached_market_data.get('last_updated', datetime.now()).strftime("%Y-%m-%d %H:%M:%S"))
 
 @app.route('/dashboard-data')
 def dashboard_data():
-    local_exchange = ccxt.coinex({
-        'apiKey': API_KEY,
-        'secret': API_SECRET,
-        'enableRateLimit': True
-    })
+    # استخدام البيانات المخزنة مؤقتاً
+    balance = cached_market_data.get('balance', {})
+    ticker = cached_market_data.get('ticker', {})
     
-    try:
-        balance = local_exchange.fetch_balance()
-        ticker = local_exchange.fetch_ticker(symbol)
-        current_price = ticker['last']
-        
-        processed_balance = {
-            'free': {
-                'USDT': balance.get('USDT', {}).get('free', 0),
-                'BTC': balance.get('BTC', {}).get('free', 0)
-            },
-            'total': balance.get('total', {})
-        }
-        
-        current_profit = 0
-        if open_trade['is_open']:
-            current_profit = (current_price - open_trade['buy_price']) * open_trade['amount']
-        
-        try:
-            last_signal = "شراء" if predict_signal() else "بيع"
-        except:
-            last_signal = "غير معروف"
-        
-        next_check = (datetime.now() + timedelta(minutes=60 - datetime.now().minute)).strftime("%H:%M:%S")
-        
-        return jsonify({
-            'open_trade': open_trade,
-            'balance': processed_balance,
-            'trades': trade_history,
-            'current_price': current_price,
-            'current_profit': current_profit,
-            'last_signal': last_signal,
-            'next_check': next_check,
-            'last_updated': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        })
-        
-    except Exception as e:
-        print(f"Error in dashboard data: {e}")
-        return jsonify({
-            'error': str(e),
-            'open_trade': open_trade,
-            'balance': {'free': {'USDT': 0, 'BTC': 0}, 'total': {}},
-            'trades': trade_history,
-            'current_price': 0,
-            'current_profit': 0,
-            'last_signal': "خطأ في الجلب",
-            'next_check': "--:--:--",
-            'last_updated': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }), 500
+    processed_balance = {
+        'free': {
+            'USDT': balance.get('USDT', {}).get('free', 0) if balance else 0,
+            'BTC': balance.get('BTC', {}).get('free', 0) if balance else 0
+        },
+        'total': balance.get('total', {}) if balance else {}
+    }
+    
+    current_price = ticker.get('last', 0) if ticker else 0
+    current_profit = 0
+    if open_trade['is_open']:
+        current_profit = (current_price - open_trade['buy_price']) * open_trade['amount']
+    
+    last_signal = "غير معروف"
+    if cached_market_data['last_prediction'] is not None:
+        last_signal = "شراء" if cached_market_data['last_prediction'] == 1 else "بيع"
+    
+    next_check = (datetime.now() + timedelta(minutes=60 - datetime.now().minute)).strftime("%H:%M:%S")
+    
+    return jsonify({
+        'open_trade': open_trade,
+        'balance': processed_balance,
+        'trades': trade_history,
+        'current_price': current_price,
+        'current_profit': current_profit,
+        'last_signal': last_signal,
+        'next_check': next_check,
+        'last_updated': cached_market_data.get('last_updated', datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
+    })
 
 # === تشغيل البوت ===
 def trading_job():
     """المهمة الدورية للتداول"""
-    print("جارٍ التحقق من السوق...")
+    logging.info("جارٍ التحقق من السوق...")
     try:
         signal = predict_signal()
         execute_trade(signal)
     except Exception as e:
-        print(f"[ERROR] {e}")
+        logging.error(f"[ERROR] {e}")
 
 def run_bot():
     """تشغيل البوت في الخلفية"""
-    schedule.every().hour.at(":00").do(trading_job)
+    # التهيئة الأولية
+    update_market_data()
+    update_prediction()
+    
+    # الجدولة
+    schedule.every().hour.at(":00").do(trading_job)  # التداول كل ساعة
+    schedule.every(5).minutes.do(update_market_data)  # تحديث البيانات كل 5 دقائق
+    schedule.every(30).minutes.do(update_prediction)  # تحديث التنبؤ كل 30 دقيقة
+    
+    logging.info("بدأ تشغيل بوت التداول")
+    
     while True:
         schedule.run_pending()
         time.sleep(1)
@@ -285,4 +299,5 @@ if __name__ == '__main__':
     bot_thread.start()
     
     # بدء خادم Flask
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
+    logging.info("بدأ تشغيل خادم الويب")
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)), use_reloader=False)
