@@ -18,7 +18,13 @@ exchange = ccxt.coinex({
 })
 
 # === تحميل النموذج ===
-model = load_model('yazbekw.h5')  # استخدم نوع ملف واحد فقط
+try:
+    model = load_model('yazbekw.h5', compile=False)
+    print("تم تحميل النموذج بنجاح")
+except Exception as e:
+    print(f"خطأ في تحميل النموذج: {e}")
+    # يمكنك إضافة خيار لاستخدام نموذج بديل أو إنهاء البرنامج
+    raise
 
 # === إعدادات التداول ===
 symbol = 'BTC/USDT'
