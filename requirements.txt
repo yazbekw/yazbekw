@@ -5,3 +5,4 @@ tensorflow==2.15.0
 flask==3.0.2
 schedule==1.2.0
 gunicorn==21.2.0
+keras==2.15.0
