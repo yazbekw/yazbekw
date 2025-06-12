@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Trading Bot Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Trading Bot Dashboard</h2>
+        
+        <div class="section">
+            <h2>Open Trade</h2>
+            {% if open_trade.is_open %}
+                <p>Status: <span class="buy">OPEN</span></p>
+                <p>Symbol: {{ symbol }}</p>
+                <p>Buy Price: ${{ "%.2f"|format(open_trade.buy_price) }}</p>
+                <p>Amount: {{ "%.8f"|format(open_trade.amount) }}</p>
+                <p>Buy Time: {{ open_trade.buy_time }}</p>
+            {% else %}
+                <p>Status: <span class="sell">CLOSED</span></p>
+            {% endif %}
+        </div>
+        
+        <div class="section">
+            <h2>Balance</h2>
+            <p>USDT: {{ balance.free.USDT|default(0) }}</p>
+            <p>BTC: {{ balance.free.BTC|default(0) }}</p>
+        </div>
+        
+        <div class="section">
+            <h2>Trade History</h2>
+            <table>
+                <tr>
+                    <th>Type</th>
+                    <th>Price</th>
+                    <th>Amount</th>
+                    <th>Time</th>
+                    <th>Profit</th>
+                </tr>
+                {% for trade in trades %}
+                <tr>
+                    <td class="{{ trade.type|lower }}">{{ trade.type }}</td>
+                    <td>${{ "%.2f"|format(trade.price) }}</td>
+                    <td>{{ "%.8f"|format(trade.amount) }}</td>
+                    <td>{{ trade.time }}</td>
+                    <td>{% if trade.profit is defined %}${{ "%.2f"|format(trade.profit) }}{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+    </div>
+</body>
+</html>
