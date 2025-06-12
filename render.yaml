@@ -9,5 +9,3 @@ services:
         value: your_coinex_api_key
       - key: SECRET_KEY
         value: your_coinex_secret_key
-
-
