@@ -12,8 +12,8 @@ app = Flask(__name__)
 
 # === إعدادات CoinEx API ===
 exchange = ccxt.coinex({
-    'apiKey': 'YOUR_API_KEY_HERE',
-    'secret': 'YOUR_SECRET_KEY_HERE',
+    'apiKey': os.environ.get('COINEX_API_KEY'),
+    'secret': os.environ.get('COINEX_API_SECRET'),
 })
 
 # === تحميل النموذج ===
