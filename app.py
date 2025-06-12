@@ -9,6 +9,7 @@ import time
 from flask import Flask, render_template
 import threading
 from datetime import datetime
+from sklearn.preprocessing import MinMaxScaler
 
 app = Flask(__name__)
 
@@ -41,10 +42,37 @@ def get_live_data():
 
 # === تحضير البيانات ===
 def prepare_features(df):
-    features = df['close'].values[-50:]
-    features = features.reshape(1, -1)
-    return features
+    df = df.copy()
 
+    # حساب المؤشرات الفنية
+    df['MA_10'] = df['close'].rolling(window=10).mean()
+    df['MA_50'] = df['close'].rolling(window=50).mean()
+
+    delta = df['close'].diff()
+    gain = delta.where(delta > 0, 0).rolling(window=14).mean()
+    loss = -delta.where(delta < 0, 0).rolling(window=14).mean()
+    rs = gain / loss
+    df['RSI'] = 100 - (100 / (1 + rs))
+
+    # إزالة الصفوف غير الكاملة
+    df.dropna(inplace=True)
+
+    # اختيار الميزات المطلوبة
+    features = ['open', 'high', 'low', 'close', 'volume', 'MA_10', 'MA_50', 'RSI']
+    data = df[features].tail(24)  # نأخذ آخر 24 ساعة
+
+    # التحقق من وجود 24 صف
+    if len(data) < 24:
+        raise ValueError("ليس هناك عدد كافٍ من الصفوف (نحتاج 24 صفًا على الأقل)")
+
+    # تطبيع البيانات
+    scaler = MinMaxScaler()
+    scaled = scaler.fit_transform(data)
+
+    # إعادة تشكيل البيانات: (1, 24, 8)
+    X = np.reshape(scaled, (1, 24, len(features)))
+    return X
+    
 # === التنبؤ ===
 def predict_signal():
     df = get_live_data()
