@@ -1,53 +1,656 @@
 <!DOCTYPE html>
-<html>
+<html lang="ar" dir="rtl">
 <head>
-    <title>Trading Bot Dashboard</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>مراقبة بوت التداول الآلي</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --secondary-color: #3498db;
+            --success-color: #27ae60;
+            --danger-color: #e74c3c;
+            --warning-color: #f39c12;
+            --light-bg: #f8f9fa;
+            --dark-text: #2c3e50;
+            --light-text: #ecf0f1;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f2f5;
+            color: var(--dark-text);
+            padding-top: 20px;
+        }
+        
+        .dashboard-header {
+            background: linear-gradient(135deg, var(--primary-color), #1a2530);
+            color: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 25px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        
+        .card {
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.05);
+            margin-bottom: 20px;
+            border: none;
+            transition: transform 0.3s ease;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
+        }
+        
+        .card-header {
+            background-color: white;
+            border-bottom: 1px solid #eee;
+            font-weight: 600;
+            padding: 15px 20px;
+            border-radius: 10px 10px 0 0 !important;
+        }
+        
+        .card-body {
+            padding: 20px;
+        }
+        
+        .stat-card {
+            text-align: center;
+            padding: 20px;
+        }
+        
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            margin: 10px 0;
+        }
+        
+        .stat-label {
+            font-size: 0.9rem;
+            color: #6c757d;
+        }
+        
+        .profit {
+            color: var(--success-color);
+            font-weight: 600;
+        }
+        
+        .loss {
+            color: var(--danger-color);
+            font-weight: 600;
+        }
+        
+        .trade-history {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .trade-item {
+            border-bottom: 1px solid #eee;
+            padding: 12px 0;
+        }
+        
+        .trade-item:last-child {
+            border-bottom: none;
+        }
+        
+        .trade-buy {
+            border-left: 4px solid var(--success-color);
+        }
+        
+        .trade-sell {
+            border-left: 4px solid var(--danger-color);
+        }
+        
+        .current-trade {
+            background-color: rgba(52, 152, 219, 0.05);
+            border-left: 4px solid var(--secondary-color);
+        }
+        
+        .status-badge {
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        
+        .status-active {
+            background-color: rgba(39, 174, 96, 0.15);
+            color: var(--success-color);
+        }
+        
+        .status-inactive {
+            background-color: rgba(231, 76, 60, 0.15);
+            color: var(--danger-color);
+        }
+        
+        .refresh-btn {
+            background-color: var(--secondary-color);
+            color: white;
+            border: none;
+            border-radius: 50px;
+            padding: 8px 20px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        
+        .refresh-btn:hover {
+            background-color: #2980b9;
+            transform: scale(1.05);
+        }
+        
+        .chart-container {
+            height: 300px;
+            position: relative;
+        }
+        
+        .last-updated {
+            font-size: 0.85rem;
+            color: #6c757d;
+            text-align: right;
+            margin-top: 10px;
+        }
+        
+        .notification {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 15px 25px;
+            border-radius: 8px;
+            color: white;
+            font-weight: 500;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            z-index: 1000;
+            display: none;
+        }
+        
+        .notification-success {
+            background-color: var(--success-color);
+        }
+        
+        .notification-error {
+            background-color: var(--danger-color);
+        }
+        
+        @media (max-width: 768px) {
+            .stat-value {
+                font-size: 1.5rem;
+            }
+        }
+    </style>
 </head>
 <body>
     <div class="container">
-        <h1>Trading Bot Dashboard</h2>
-        
-        <div class="section">
-            <h2>Open Trade</h2>
-            {% if open_trade.is_open %}
-                <p>Status: <span class="buy">OPEN</span></p>
-                <p>Symbol: {{ symbol }}</p>
-                <p>Buy Price: ${{ "%.2f"|format(open_trade.buy_price) }}</p>
-                <p>Amount: {{ "%.8f"|format(open_trade.amount) }}</p>
-                <p>Buy Time: {{ open_trade.buy_time }}</p>
-            {% else %}
-                <p>Status: <span class="sell">CLOSED</span></p>
-            {% endif %}
+        <!-- رأس لوحة التحكم -->
+        <div class="dashboard-header">
+            <div class="row align-items-center">
+                <div class="col-md-8">
+                    <h1><i class="fas fa-robot"></i> لوحة مراقبة بوت التداول الآلي</h1>
+                    <p class="mb-0">مراقبة الصفقات، الرصيد، وأداء البوت في الوقت الفعلي</p>
+                </div>
+                <div class="col-md-4 text-end">
+                    <div class="d-inline-block bg-white text-dark p-2 rounded">
+                        <span id="current-time"></span>
+                    </div>
+                </div>
+            </div>
         </div>
         
-        <div class="section">
-            <h2>Balance</h2>
-            <p>USDT: {{ balance.free.USDT|default(0) }}</p>
-            <p>BTC: {{ balance.free.BTC|default(0) }}</p>
+        <!-- بطاقات الإحصائيات السريعة -->
+        <div class="row">
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="stat-card">
+                        <i class="fas fa-wallet fa-2x text-primary"></i>
+                        <div class="stat-value" id="balance-usdt">0.00</div>
+                        <div class="stat-label">رصيد USDT</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="stat-card">
+                        <i class="fab fa-bitcoin fa-2x text-warning"></i>
+                        <div class="stat-value" id="balance-btc">0.000000</div>
+                        <div class="stat-label">رصيد BTC</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="stat-card">
+                        <i class="fas fa-chart-line fa-2x text-success"></i>
+                        <div class="stat-value" id="total-profit">0.00</div>
+                        <div class="stat-label">إجمالي الأرباح</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="stat-card">
+                        <i class="fas fa-exchange-alt fa-2x text-info"></i>
+                        <div class="stat-value" id="total-trades">0</div>
+                        <div class="stat-label">إجمالي الصفقات</div>
+                    </div>
+                </div>
+            </div>
         </div>
         
-        <div class="section">
-            <h2>Trade History</h2>
-            <table>
-                <tr>
-                    <th>Type</th>
-                    <th>Price</th>
-                    <th>Amount</th>
-                    <th>Time</th>
-                    <th>Profit</th>
-                </tr>
-                {% for trade in trades %}
-                <tr>
-                    <td class="{{ trade.type|lower }}">{{ trade.type }}</td>
-                    <td>${{ "%.2f"|format(trade.price) }}</td>
-                    <td>{{ "%.8f"|format(trade.amount) }}</td>
-                    <td>{{ trade.time }}</td>
-                    <td>{% if trade.profit is defined %}${{ "%.2f"|format(trade.profit) }}{% endif %}</td>
-                </tr>
-                {% endfor %}
-            </table>
+        <!-- الصفقة الحالية وتفاصيل التداول -->
+        <div class="row mt-4">
+            <div class="col-lg-6">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><i class="fas fa-sync-alt me-2"></i>الصفقة الحالية</span>
+                        <span class="status-badge status-inactive" id="trade-status">لا توجد صفقة نشطة</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="alert alert-info" id="no-trade-alert">
+                            لا توجد صفقة نشطة حالياً. البوت ينتظر إشارة شراء.
+                        </div>
+                        
+                        <div id="active-trade-details" style="display: none;">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">زوج التداول</label>
+                                        <div class="form-control bg-light">BTC/USDT</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">نوع الصفقة</label>
+                                        <div class="form-control bg-light">شراء</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label class="form-label">سعر الشراء</label>
+                                        <div class="form-control bg-light" id="trade-buy-price">0.00</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label class="form-label">الكمية</label>
+                                        <div class="form-control bg-light" id="trade-amount">0.000000</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label class="form-label">القيمة</label>
+                                        <div class="form-control bg-light" id="trade-value">0.00</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">وقت الشراء</label>
+                                        <div class="form-control bg-light" id="trade-time">--/--/-- --:--:--</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">الربح الحالي</label>
+                                        <div class="form-control bg-light" id="current-profit">0.00</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <i class="fas fa-history me-2"></i>تاريخ الصفقات
+                    </div>
+                    <div class="card-body">
+                        <div class="trade-history">
+                            <div id="trades-container">
+                                <!-- سيتم ملء تاريخ الصفقات هنا عبر JavaScript -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-lg-6">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><i class="fas fa-chart-bar me-2"></i>أداء البوت</span>
+                        <button class="btn btn-sm refresh-btn" id="refresh-btn">
+                            <i class="fas fa-sync-alt me-1"></i>تحديث
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="performance-chart"></canvas>
+                        </div>
+                        <div class="last-updated" id="last-updated">
+                            آخر تحديث: --/--/-- --:--:--
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <i class="fas fa-info-circle me-2"></i>معلومات النظام
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">زوج التداول</label>
+                                    <div class="form-control bg-light">BTC/USDT</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">مبلغ الاستثمار</label>
+                                    <div class="form-control bg-light">9.00 USDT</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">حالة البوت</label>
+                                    <div class="form-control bg-light">
+                                        <span class="status-badge status-active">نشط</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">آخر إشارة تداول</label>
+                                    <div class="form-control bg-light" id="last-signal">--</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">السعر الحالي</label>
+                                    <div class="form-control bg-light" id="current-price">0.00</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">الفحص القادم</label>
+                                    <div class="form-control bg-light" id="next-check">--:--:--</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="text-center mt-5 mb-4 text-muted">
+            <p>نظام مراقبة بوت التداول الآلي | الإصدار 1.0</p>
         </div>
     </div>
+    
+    <!-- منطقة الإشعارات -->
+    <div class="notification" id="notification">
+        <i class="fas fa-check-circle me-2"></i>
+        <span id="notification-text">تم التحديث بنجاح</span>
+    </div>
+    
+    <script>
+        // بيانات وهمية للعرض التوضيحي (ستتم استبدالها ببيانات حقيقية من الخادم)
+        const sampleData = {
+            open_trade: {
+                is_open: true,
+                buy_price: 34250.75,
+                amount: 0.000262,
+                buy_time: "2023-11-15 14:30:45"
+            },
+            balance: {
+                free: {
+                    USDT: 8.23,
+                    BTC: 0.000262
+                },
+                total: {
+                    USDT: 8.23,
+                    BTC: 0.000262
+                }
+            },
+            trades: [
+                {
+                    type: "BUY",
+                    price: 34250.75,
+                    amount: 0.000262,
+                    time: "2023-11-15 14:30:45",
+                    profit: null
+                },
+                {
+                    type: "SELL",
+                    price: 34680.20,
+                    amount: 0.000258,
+                    time: "2023-11-15 10:15:30",
+                    profit: 1.23
+                },
+                {
+                    type: "BUY",
+                    price: 34020.50,
+                    amount: 0.000264,
+                    time: "2023-11-14 16:45:12",
+                    profit: null
+                },
+                {
+                    type: "SELL",
+                    price: 34380.30,
+                    amount: 0.000264,
+                    time: "2023-11-14 09:30:22",
+                    profit: 0.95
+                },
+                {
+                    type: "BUY",
+                    price: 33850.25,
+                    amount: 0.000265,
+                    time: "2023-11-13 12:20:18",
+                    profit: null
+                }
+            ],
+            current_price: 34320.60,
+            last_signal: "شراء",
+            next_check: "15:00:00"
+        };
+        
+        // حساب إجمالي الأرباح
+        function calculateTotalProfit(trades) {
+            return trades.reduce((total, trade) => {
+                return total + (trade.profit || 0);
+            }, 0).toFixed(2);
+        }
+        
+        // تحديث الوقت الحالي
+        function updateCurrentTime() {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('ar-EG');
+            const dateStr = now.toLocaleDateString('ar-EG', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+            document.getElementById('current-time').textContent = `${dateStr} - ${timeStr}`;
+        }
+        
+        // تحديث واجهة المستخدم بالبيانات
+        function updateUI(data) {
+            // تحديث الرصيد
+            document.getElementById('balance-usdt').textContent = data.balance.free.USDT.toFixed(2);
+            document.getElementById('balance-btc').textContent = data.balance.free.BTC.toFixed(6);
+            
+            // تحديث إجمالي الأرباح
+            const totalProfit = calculateTotalProfit(data.trades);
+            document.getElementById('total-profit').textContent = totalProfit + " USDT";
+            
+            // تحديث إجمالي الصفقات
+            document.getElementById('total-trades').textContent = data.trades.length;
+            
+            // تحديث الصفقة الحالية
+            if (data.open_trade.is_open) {
+                document.getElementById('trade-status').textContent = "صفقة نشطة";
+                document.getElementById('trade-status').className = "status-badge status-active";
+                document.getElementById('no-trade-alert').style.display = 'none';
+                document.getElementById('active-trade-details').style.display = 'block';
+                
+                document.getElementById('trade-buy-price').textContent = data.open_trade.buy_price.toFixed(2);
+                document.getElementById('trade-amount').textContent = data.open_trade.amount.toFixed(6);
+                document.getElementById('trade-value').textContent = (data.open_trade.buy_price * data.open_trade.amount).toFixed(2);
+                document.getElementById('trade-time').textContent = data.open_trade.buy_time;
+                
+                const currentProfit = (data.current_price - data.open_trade.buy_price) * data.open_trade.amount;
+                document.getElementById('current-profit').textContent = currentProfit.toFixed(2) + " USDT";
+                document.getElementById('current-profit').className = currentProfit >= 0 ? "form-control bg-light profit" : "form-control bg-light loss";
+            } else {
+                document.getElementById('trade-status').textContent = "لا توجد صفقة نشطة";
+                document.getElementById('trade-status').className = "status-badge status-inactive";
+                document.getElementById('no-trade-alert').style.display = 'block';
+                document.getElementById('active-trade-details').style.display = 'none';
+            }
+            
+            // تحديث تاريخ الصفقات
+            const tradesContainer = document.getElementById('trades-container');
+            tradesContainer.innerHTML = '';
+            
+            data.trades.forEach(trade => {
+                const tradeDiv = document.createElement('div');
+                tradeDiv.className = `trade-item ${trade.type === 'BUY' ? 'trade-buy' : 'trade-sell'}`;
+                
+                const tradeType = trade.type === 'BUY' ? 
+                    `<span class="badge bg-success">شراء</span>` : 
+                    `<span class="badge bg-danger">بيع</span>`;
+                
+                const profitHtml = trade.profit !== null ? 
+                    `<div class="${trade.profit >= 0 ? 'profit' : 'loss'}">${trade.profit >= 0 ? '+' : ''}${trade.profit.toFixed(2)} USDT</div>` : 
+                    '';
+                
+                tradeDiv.innerHTML = `
+                    <div class="row align-items-center">
+                        <div class="col-3">${tradeType}</div>
+                        <div class="col-3">${trade.amount.toFixed(6)} BTC</div>
+                        <div class="col-3">${trade.price.toFixed(2)}</div>
+                        <div class="col-3 text-end">
+                            <div>${trade.time.split(' ')[1]}</div>
+                            ${profitHtml}
+                        </div>
+                    </div>
+                `;
+                
+                tradesContainer.appendChild(tradeDiv);
+            });
+            
+            // تحديث معلومات النظام
+            document.getElementById('current-price').textContent = data.current_price.toFixed(2);
+            document.getElementById('last-signal').textContent = data.last_signal;
+            document.getElementById('next-check').textContent = data.next_check;
+            
+            // تحديث وقت التحديث الأخير
+            const now = new Date();
+            document.getElementById('last-updated').textContent = `آخر تحديث: ${now.toLocaleTimeString('ar-EG')}`;
+        }
+        
+        // إنشاء مخطط الأداء
+        function createPerformanceChart() {
+            const ctx = document.getElementById('performance-chart').getContext('2d');
+            
+            // بيانات وهمية للرسم البياني
+            const labels = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+            const profitData = [0, 1.2, -0.5, 0.8, 1.5, 0.3, 0.9];
+            
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'الأرباح اليومية (USDT)',
+                        data: profitData,
+                        borderColor: '#27ae60',
+                        backgroundColor: 'rgba(39, 174, 96, 0.1)',
+                        tension: 0.3,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.05)'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                display: false
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        // عرض الإشعار
+        function showNotification(message, isSuccess = true) {
+            const notification = document.getElementById('notification');
+            const notificationText = document.getElementById('notification-text');
+            
+            notificationText.textContent = message;
+            notification.className = `notification ${isSuccess ? 'notification-success' : 'notification-error'}`;
+            notification.style.display = 'block';
+            
+            setTimeout(() => {
+                notification.style.display = 'none';
+            }, 3000);
+        }
+        
+        // وظيفة التحديث
+        function refreshData() {
+            // في التطبيق الفعلي، هنا سيتم جلب البيانات من الخادم
+            // للعرض التوضيحي، سنستخدم البيانات الوهمية
+            updateUI(sampleData);
+            showNotification('تم تحديث البيانات بنجاح');
+        }
+        
+        // تهيئة الواجهة عند التحميل
+        document.addEventListener('DOMContentLoaded', function() {
+            updateCurrentTime();
+            setInterval(updateCurrentTime, 1000); // تحديث الوقت كل ثانية
+            
+            // استخدام بيانات وهمية للعرض التوضيحي
+            updateUI(sampleData);
+            
+            // إنشاء الرسم البياني
+            createPerformanceChart();
+            
+            // إضافة مستمع لزر التحديث
+            document.getElementById('refresh-btn').addEventListener('click', refreshData);
+            
+            // تحديث البيانات كل 30 ثانية
+            setInterval(refreshData, 30000);
+        });
+    </script>
 </body>
 </html>
