@@ -19,11 +19,13 @@ exchange = ccxt.coinex({
 
 # === تحميل النموذج ===
 try:
-    model = load_model('yazbekw.h5', compile=False)
+    import tensorflow as tf
+    print(f"TensorFlow version: {tf.__version__}")
+    print(f"Keras version: {tf.keras.__version__}")
+    model = tf.keras.models.load_model('yazbekw.h5', compile=False)
     print("تم تحميل النموذج بنجاح")
 except Exception as e:
-    print(f"خطأ في تحميل النموذج: {e}")
-    # يمكنك إضافة خيار لاستخدام نموذج بديل أو إنهاء البرنامج
+    print(f"خطأ في تحميل النموذج: {str(e)}")
     raise
 
 # === إعدادات التداول ===
