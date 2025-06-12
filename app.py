@@ -1,6 +1,6 @@
 import os
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # تعطيل تحذيرات TensorFlow
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'   # تقليل سجل TensorFlow
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 import tensorflow as tf
 import ccxt
@@ -9,9 +9,9 @@ import numpy as np
 from tensorflow.keras.models import load_model
 import schedule
 import time
-from flask import Flask, render_template
+from flask import Flask, render_template, jsonify  # تمت إضافة jsonify هنا
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta  # تمت إضافة timedelta هنا
 from sklearn.preprocessing import MinMaxScaler
 from dotenv import load_dotenv
 
@@ -139,13 +139,24 @@ def execute_trade(signal):
             print(f"[SELL ERROR] {e}")
 
 # === واجهة المستخدم ===
+# ... (الاستيرادات الموجودة تبقى كما هي)
+
 @app.route('/')
 def dashboard():
-    """لوحة التحكم الرئيسية"""
-    local_exchange = create_exchange()
+    # إنشاء نسخة محلية من exchange للاستخدام في هذا الطلب
+    local_exchange = ccxt.coinex({
+        'apiKey': API_KEY,
+        'secret': API_SECRET,
+        'enableRateLimit': True
+    })
     
     try:
+        # جلب البيانات الحية
         balance = local_exchange.fetch_balance()
+        ticker = local_exchange.fetch_ticker(symbol)
+        current_price = ticker['last']
+        
+        # معالجة الرصيد
         processed_balance = {
             'free': {
                 'USDT': balance.get('USDT', {}).get('free', 0),
@@ -153,15 +164,102 @@ def dashboard():
             },
             'total': balance.get('total', {})
         }
-    except Exception as e:
-        print(f"Error fetching balance: {e}")
-        processed_balance = {'free': {'USDT': 0, 'BTC': 0}, 'total': {}}
+        
+        # حساب الربح الحالي إذا كانت هناك صفقة مفتوحة
+        current_profit = 0
+        if open_trade['is_open']:
+            current_profit = (current_price - open_trade['buy_price']) * open_trade['amount']
+        
+        # الحصول على آخر إشارة
+        try:
+            last_signal = "شراء" if predict_signal() else "بيع"
+        except:
+            last_signal = "غير معروف"
+        
+        # حساب وقت الفحص التالي (نفس منطق البوت)
+        next_check = (datetime.now() + timedelta(minutes=60 - datetime.now().minute)).strftime("%H:%M:%S")
+        
+        return render_template('dashboard.html',
+                            open_trade=open_trade,
+                            balance=processed_balance,
+                            trades=trade_history,
+                            symbol=symbol,
+                            current_price=current_price,
+                            current_profit=current_profit,
+                            last_signal=last_signal,
+                            next_check=next_check,
+                            last_updated=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     
-    return render_template('dashboard.html',
-                         open_trade=open_trade,
-                         balance=processed_balance,
-                         trades=trade_history,
-                         symbol=symbol)
+    except Exception as e:
+        print(f"Error in dashboard: {e}")
+        # في حالة الخطأ، نعود بيانات افتراضية
+        return render_template('dashboard.html',
+                            open_trade=open_trade,
+                            balance={'free': {'USDT': 0, 'BTC': 0}, 'total': {}},
+                            trades=trade_history,
+                            symbol=symbol,
+                            current_price=0,
+                            current_profit=0,
+                            last_signal="خطأ في الجلب",
+                            next_check="--:--:--",
+                            last_updated=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+@app.route('/dashboard-data')
+def dashboard_data():
+    local_exchange = ccxt.coinex({
+        'apiKey': API_KEY,
+        'secret': API_SECRET,
+        'enableRateLimit': True
+    })
+    
+    try:
+        balance = local_exchange.fetch_balance()
+        ticker = local_exchange.fetch_ticker(symbol)
+        current_price = ticker['last']
+        
+        processed_balance = {
+            'free': {
+                'USDT': balance.get('USDT', {}).get('free', 0),
+                'BTC': balance.get('BTC', {}).get('free', 0)
+            },
+            'total': balance.get('total', {})
+        }
+        
+        current_profit = 0
+        if open_trade['is_open']:
+            current_profit = (current_price - open_trade['buy_price']) * open_trade['amount']
+        
+        try:
+            last_signal = "شراء" if predict_signal() else "بيع"
+        except:
+            last_signal = "غير معروف"
+        
+        next_check = (datetime.now() + timedelta(minutes=60 - datetime.now().minute)).strftime("%H:%M:%S")
+        
+        return jsonify({
+            'open_trade': open_trade,
+            'balance': processed_balance,
+            'trades': trade_history,
+            'current_price': current_price,
+            'current_profit': current_profit,
+            'last_signal': last_signal,
+            'next_check': next_check,
+            'last_updated': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        })
+        
+    except Exception as e:
+        print(f"Error in dashboard data: {e}")
+        return jsonify({
+            'error': str(e),
+            'open_trade': open_trade,
+            'balance': {'free': {'USDT': 0, 'BTC': 0}, 'total': {}},
+            'trades': trade_history,
+            'current_price': 0,
+            'current_profit': 0,
+            'last_signal': "خطأ في الجلب",
+            'next_check': "--:--:--",
+            'last_updated': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }), 500
 
 # === تشغيل البوت ===
 def trading_job():
