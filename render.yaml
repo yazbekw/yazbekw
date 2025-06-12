@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: trading-bot
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: API_KEY
+        value: your_coinex_api_key
+      - key: SECRET_KEY
+        value: your_coinex_secret_key
