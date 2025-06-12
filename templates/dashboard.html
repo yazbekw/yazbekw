@@ -410,6 +410,17 @@
     </div>
     
 	<script>
+	    function fetchData() {
+            fetch('/dashboard-data')
+                .then(response => response.json())
+                .then(data => {
+                    console.log("تم تحديث البيانات:", data);
+                    // أعد عرض البيانات في الصفحة هنا (مثال: تحديث السعر)
+                    document.getElementById("current_price").innerText = data.current_price;
+                });
+        }
+        setInterval(fetchData, 30000); // كل 10 ثوانٍ
+	
         // دالة لجلب البيانات من الخادم
         async function fetchData() {
             try {
