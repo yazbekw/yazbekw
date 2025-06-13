@@ -180,6 +180,16 @@ def update_market_data():
     except Exception as e:
         logging.error(f"فشل تحديث بيانات السوق: {e}")
 
+def update_cache():
+    """تحديث البيانات المخزنة مؤقتاً بشكل دوري"""
+    while True:
+        try:
+            update_market_data()
+            update_prediction()
+            time.sleep(300)  # تحديث كل 5 دقائق
+        except Exception as e:
+            logging.error(f"خطأ في تحديث البيانات المخزنة: {e}")
+
 def update_prediction():
     """تحديث الإشارة التنبؤية المخزنة مؤقتاً"""
     try:
@@ -237,6 +247,13 @@ def dashboard():
                         
 @app.route('/dashboard-data')
 def dashboard_data():
+    try:
+        # تحديث البيانات قبل الإرسال
+        update_market_data()
+        update_prediction()
+        
+        balance = cached_market_data.get('balance', {})
+        ticker = cached_market_data.get('ticker', {})
     # استخدام البيانات المخزنة مؤقتاً
     balance = cached_market_data.get('balance', {})
     ticker = cached_market_data.get('ticker', {})
@@ -288,13 +305,6 @@ def trading_job():
         logging.error(f"[ERROR] {e}")
 
 def run_bot():
-    while True:
-        try:
-            schedule.run_pending()
-            time.sleep(1)
-        except Exception as e:
-            logging.error(f"خطأ في الجدولة: {e}")
-            
     """تشغيل البوت في الخلفية"""
     # التهيئة الأولية
     update_market_data()
@@ -312,11 +322,15 @@ def run_bot():
         time.sleep(1)
 
 if __name__ == '__main__':
+    # بدء تحديث البيانات في الخلفية
+    cache_thread = threading.Thread(target=update_cache)
+    cache_thread.daemon = True
+    cache_thread.start()
+    
     # بدء البوت في خيط منفصل
     bot_thread = threading.Thread(target=run_bot)
     bot_thread.daemon = True
     bot_thread.start()
     
     # بدء خادم Flask
-    logging.info("بدأ تشغيل خادم الويب")
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)), use_reloader=False)
