@@ -61,7 +61,7 @@ def create_exchange():
 
 # اتصال رئيسي لعمليات التداول
 exchange = create_exchange()
-
+data_lock = threading.Lock()
 # === متغيرات للتخزين المؤقت ===
 cached_market_data = {
     'balance': None,
@@ -172,32 +172,25 @@ def execute_trade(signal):
 def update_market_data():
     """تحديث بيانات السوق المخزنة مؤقتاً"""
     try:
-        cached_market_data['balance'] = exchange.fetch_balance()
-        cached_market_data['ticker'] = exchange.fetch_ticker(symbol)
-        cached_market_data['ohlcv'] = exchange.fetch_ohlcv(symbol, timeframe='1h', limit=100)
-        cached_market_data['last_updated'] = datetime.now()
+        with data_lock:
+            cached_market_data['balance'] = exchange.fetch_balance()
+            cached_market_data['ticker'] = exchange.fetch_ticker(symbol)
+            cached_market_data['ohlcv'] = exchange.fetch_ohlcv(symbol, timeframe='1h', limit=100)
+            cached_market_data['last_updated'] = datetime.now()
         logging.info("تم تحديث بيانات السوق بنجاح")
     except Exception as e:
         logging.error(f"فشل تحديث بيانات السوق: {e}")
 
-def update_cache():
-    """تحديث البيانات المخزنة مؤقتاً بشكل دوري"""
-    while True:
-        try:
-            update_market_data()
-            update_prediction()
-            time.sleep(300)  # تحديث كل 5 دقائق
-        except Exception as e:
-            logging.error(f"خطأ في تحديث البيانات المخزنة: {e}")
 
 def update_prediction():
     """تحديث الإشارة التنبؤية المخزنة مؤقتاً"""
     try:
-        cached_market_data['last_prediction'] = predict_signal()
+        with data_lock:
+            cached_market_data['last_prediction'] = predict_signal()
         logging.info(f"تم تحديث التنبؤ: {cached_market_data['last_prediction']}")
     except Exception as e:
         logging.error(f"فشل تحديث التنبؤ: {e}")
-
+        
 # === واجهة المستخدم ===
 @app.route('/')
 def dashboard():
@@ -252,13 +245,14 @@ def dashboard_data():
         # تحديث البيانات قبل الإرسال
         update_market_data()
         update_prediction()
-        
-        balance = cached_market_data.get('balance', {})
-        ticker = cached_market_data.get('ticker', {})
     except Exception as e:
         logging.error(f"Error updating market data: {e}")
+    
+    with data_lock:
         balance = cached_market_data.get('balance', {})
         ticker = cached_market_data.get('ticker', {})
+        last_prediction = cached_market_data.get('last_prediction')
+        last_updated = cached_market_data.get('last_updated')
     
     processed_balance = {
         'free': {
@@ -306,6 +300,7 @@ def trading_job():
     except Exception as e:
         logging.error(f"[ERROR] {e}")
 
+
 def run_bot():
     """تشغيل البوت في الخلفية"""
     # التهيئة الأولية
@@ -315,7 +310,7 @@ def run_bot():
     # الجدولة
     schedule.every().hour.at(":00").do(trading_job)  # التداول كل ساعة
     schedule.every(5).minutes.do(update_market_data)  # تحديث البيانات كل 5 دقائق
-    schedule.every(30).minutes.do(update_prediction)  # تحديث التنبؤ كل 30 دقيقة
+    schedule.every(5).minutes.do(update_prediction)   # تحديث التنبؤ كل 5 دقائق
     
     logging.info("بدأ تشغيل بوت التداول")
     
@@ -333,6 +328,8 @@ if __name__ == '__main__':
     bot_thread = threading.Thread(target=run_bot)
     bot_thread.daemon = True
     bot_thread.start()
+
+    logging.info("تم بدء خيط البوت")
     
     # بدء خادم Flask
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)), use_reloader=False)
