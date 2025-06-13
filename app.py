@@ -245,6 +245,7 @@ def dashboard():
                         next_check=next_check,
                         last_updated=last_updated_str)
                         
+
 @app.route('/dashboard-data')
 def dashboard_data():
     try:
@@ -254,9 +255,10 @@ def dashboard_data():
         
         balance = cached_market_data.get('balance', {})
         ticker = cached_market_data.get('ticker', {})
-    # استخدام البيانات المخزنة مؤقتاً
-    balance = cached_market_data.get('balance', {})
-    ticker = cached_market_data.get('ticker', {})
+    except Exception as e:
+        logging.error(f"Error updating market data: {e}")
+        balance = cached_market_data.get('balance', {})
+        ticker = cached_market_data.get('ticker', {})
     
     processed_balance = {
         'free': {
