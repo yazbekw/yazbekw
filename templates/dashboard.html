@@ -252,7 +252,7 @@
                     </div>
                     <div class="card-body">
                         <div class="alert alert-info" id="no-trade-alert">
-                            لا توجد صفقة نشطة حالياً. البوت ينتظر إشارة شراء.
+                            لا توجد صفقة نشطة حالياً. البوت ينتظر إشارة شراء (الفحص كل 30 دقيقة)
                         </div>
                         
                         <div id="active-trade-details" style="display: none;">
@@ -390,6 +390,7 @@
                                 <div class="mb-3">
                                     <label class="form-label">الفحص القادم</label>
                                     <div class="form-control bg-light" id="next-check">--:--:--</div>
+                                    <small class="text-muted">(يتم الفحص كل 30 دقيقة)</small>
                                 </div>
                             </div>
                         </div>
@@ -409,18 +410,12 @@
         <span id="notification-text">تم التحديث بنجاح</span>
     </div>
     
-	<script>
-	    function fetchData() {
-            fetch('/dashboard-data')
-                .then(response => response.json())
-                .then(data => {
-                    console.log("تم تحديث البيانات:", data);
-                    // أعد عرض البيانات في الصفحة هنا (مثال: تحديث السعر)
-                    document.getElementById("current_price").innerText = data.current_price;
-                });
-        }
-        setInterval(fetchData, 30000); // كل 10 ثوانٍ
-	
+    <div class="notification notification-error" id="error-notification" style="display: none;">
+        <i class="fas fa-exclamation-triangle me-2"></i>
+        <span id="error-message"></span>
+    </div>
+    
+    <script>
         // دالة لجلب البيانات من الخادم
         async function fetchData() {
             try {
@@ -429,41 +424,128 @@
                 return await response.json();
             } catch (error) {
                 console.error('Failed to fetch data:', error);
+                showError('فشل في جلب البيانات: ' + error.message);
                 throw error;
             }
         }
- 
+
+        // دالة لعرض الإشعارات
+        function showNotification(message, isSuccess) {
+            const notification = document.getElementById('notification');
+            const icon = isSuccess ? 'fa-check-circle' : 'fa-exclamation-circle';
+            
+            notification.innerHTML = `
+                <i class="fas ${icon} me-2"></i>
+                <span id="notification-text">${message}</span>
+            `;
+            notification.className = `notification ${isSuccess ? 'notification-success' : 'notification-error'}`;
+            notification.style.display = 'block';
+            
+            setTimeout(() => {
+                notification.style.display = 'none';
+            }, 5000);
+        }
+
+        // دالة لعرض أخطاء
+        function showError(message) {
+            const notification = document.getElementById('error-notification');
+            document.getElementById('error-message').textContent = message;
+            notification.style.display = 'block';
+            
+            setTimeout(() => {
+                notification.style.display = 'none';
+            }, 5000);
+        }
+
+        // دالة لتحديث الرسم البياني
+        function updateChart(trades) {
+            const ctx = document.getElementById('performance-chart').getContext('2d');
+            
+            // تصفية الصفقات المكتملة فقط
+            const completedTrades = trades ? trades.filter(t => t.status !== 'pending') : [];
+            
+            const profitableTrades = completedTrades.filter(t => t.profit && t.profit > 0).length;
+            const lossTrades = completedTrades.filter(t => t.profit && t.profit < 0).length;
+            
+            if (window.performanceChart) {
+                window.performanceChart.destroy();
+            }
+            
+            window.performanceChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['صفقات رابحة', 'صفقات خاسرة'],
+                    datasets: [{
+                        data: [profitableTrades, lossTrades],
+                        backgroundColor: [
+                            'rgba(39, 174, 96, 0.7)',
+                            'rgba(231, 76, 60, 0.7)'
+                        ],
+                        borderColor: [
+                            'rgba(39, 174, 96, 1)',
+                            'rgba(231, 76, 60, 1)'
+                        ],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            rtl: true
+                        },
+                        tooltip: {
+                            rtl: true,
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.label}: ${context.raw} صفقة`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
         // دالة لتحديث الواجهة بالبيانات الجديدة
         async function updateUI() {
             try {
                 const data = await fetchData();
-            
+                
                 // تحديث الرصيد
-                document.getElementById('balance-usdt').textContent = data.balance.free.USDT.toFixed(2);
-                document.getElementById('balance-btc').textContent = data.balance.free.BTC.toFixed(6);
-            
+                if (data.balance && data.balance.free) {
+                    document.getElementById('balance-usdt').textContent = data.balance.free.USDT ? data.balance.free.USDT.toFixed(2) : '0.00';
+                    document.getElementById('balance-btc').textContent = data.balance.free.BTC ? data.balance.free.BTC.toFixed(6) : '0.000000';
+                }
+                
                 // تحديث إجمالي الأرباح
-                const totalProfit = data.trades.reduce((sum, trade) => sum + (trade.profit || 0), 0);
+                let totalProfit = 0;
+                if (data.trades && data.trades.length > 0) {
+                    totalProfit = data.trades.reduce((sum, trade) => sum + (trade.profit || 0), 0);
+                }
                 document.getElementById('total-profit').textContent = totalProfit.toFixed(2) + " USDT";
-             
+                
                 // تحديث إجمالي الصفقات
-                document.getElementById('total-trades').textContent = data.trades.length;
-            
+                document.getElementById('total-trades').textContent = data.trades ? data.trades.length : 0;
+                
                 // تحديث الصفقة الحالية
-                if (data.open_trade.is_open) {
+                if (data.open_trade && data.open_trade.is_open) {
                     document.getElementById('trade-status').textContent = "صفقة نشطة";
                     document.getElementById('trade-status').className = "status-badge status-active";
                     document.getElementById('no-trade-alert').style.display = 'none';
                     document.getElementById('active-trade-details').style.display = 'block';
-                
-                    document.getElementById('trade-buy-price').textContent = data.open_trade.buy_price.toFixed(2);
-                    document.getElementById('trade-amount').textContent = data.open_trade.amount.toFixed(6);
+                    
+                    document.getElementById('trade-buy-price').textContent = data.open_trade.buy_price ? data.open_trade.buy_price.toFixed(2) : '0.00';
+                    document.getElementById('trade-amount').textContent = data.open_trade.amount ? data.open_trade.amount.toFixed(6) : '0.000000';
                     document.getElementById('trade-value').textContent = (data.open_trade.buy_price * data.open_trade.amount).toFixed(2);
-                    document.getElementById('trade-time').textContent = data.open_trade.buy_time;
-                
-                    const currentProfit = data.current_profit;
-                    document.getElementById('current-profit').textContent = currentProfit.toFixed(2) + " USDT";
-                    document.getElementById('current-profit').className = currentProfit >= 0 ? "form-control bg-light profit" : "form-control bg-light loss";
+                    document.getElementById('trade-time').textContent = data.open_trade.buy_time || '--/--/-- --:--:--';
+                    
+                    const currentProfit = data.current_profit || 0;
+                    const profitElement = document.getElementById('current-profit');
+                    profitElement.textContent = currentProfit.toFixed(2) + " USDT";
+                    profitElement.className = currentProfit >= 0 ? "form-control bg-light profit" : "form-control bg-light loss";
                 } else {
                     document.getElementById('trade-status').textContent = "لا توجد صفقة نشطة";
                     document.getElementById('trade-status').className = "status-badge status-inactive";
@@ -474,58 +556,57 @@
                 // تحديث تاريخ الصفقات
                 const tradesContainer = document.getElementById('trades-container');
                 tradesContainer.innerHTML = '';
-            
-                data.trades.forEach(trade => {
-                    const tradeDiv = document.createElement('div');
-                    tradeDiv.className = `trade-item ${trade.type === 'BUY' ? 'trade-buy' : 'trade-sell'}`;
                 
-                    const tradeType = trade.type === 'BUY' ? 
-                        `<span class="badge bg-success">شراء</span>` : 
-                        `<span class="badge bg-danger">بيع</span>`;
-                
-                    const profitHtml = trade.profit !== null ? 
-                        `<div class="${trade.profit >= 0 ? 'profit' : 'loss'}">${trade.profit >= 0 ? '+' : ''}${trade.profit.toFixed(2)} USDT</div>` : 
-                        '';
-                
-                    tradeDiv.innerHTML = `
-                        <div class="row align-items-center">
-                            <div class="col-3">${tradeType}</div>
-                            <div class="col-3">${trade.amount.toFixed(6)} BTC</div>
-                            <div class="col-3">${trade.price.toFixed(2)}</div>
-                            <div class="col-3 text-end">
-                                <div>${trade.time}</div>
-                                ${profitHtml}
+                if (data.trades && data.trades.length > 0) {
+                    data.trades.forEach(trade => {
+                        const tradeDiv = document.createElement('div');
+                        tradeDiv.className = `trade-item ${trade.type === 'BUY' ? 'trade-buy' : 'trade-sell'}`;
+                        
+                        const tradeType = trade.type === 'BUY' ? 
+                            `<span class="badge bg-success">شراء</span>` : 
+                            `<span class="badge bg-danger">بيع</span>`;
+                        
+                        const profitHtml = trade.profit !== undefined ? 
+                            `<div class="${trade.profit >= 0 ? 'profit' : 'loss'}">${trade.profit >= 0 ? '+' : ''}${trade.profit.toFixed(2)} USDT</div>` : 
+                            '';
+                        
+                        tradeDiv.innerHTML = `
+                            <div class="row align-items-center">
+                                <div class="col-3">${tradeType}</div>
+                                <div class="col-3">${trade.amount ? trade.amount.toFixed(6) : '0.000000'} BTC</div>
+                                <div class="col-3">${trade.price ? trade.price.toFixed(2) : '0.00'}</div>
+                                <div class="col-3 text-end">
+                                    <div>${trade.time || '--/--/-- --:--:--'}</div>
+                                    ${profitHtml}
+                                </div>
                             </div>
-                        </div>
-                    `;
+                        `;
+                        
+                        tradesContainer.appendChild(tradeDiv);
+                    });
+                } else {
+                    tradesContainer.innerHTML = '<div class="text-center py-3 text-muted">لا توجد صفقات سابقة</div>';
+                }
                 
-                    tradesContainer.appendChild(tradeDiv);
-                });
-            
                 // تحديث معلومات النظام
-                document.getElementById('current-price').textContent = data.current_price.toFixed(2);
-                document.getElementById('last-signal').textContent = data.last_signal;
-                document.getElementById('next-check').textContent = data.next_check;
-                document.getElementById('last-updated').textContent = `آخر تحديث: ${new Date().toLocaleTimeString('ar-EG')}`;
-            
-                // تحديث الرسم البياني (إذا كنت تريد بيانات حقيقية هنا أيضاً)
+                document.getElementById('current-price').textContent = data.current_price ? data.current_price.toFixed(2) : '0.00';
+                document.getElementById('last-signal').textContent = data.last_signal || '--';
+                document.getElementById('next-check').textContent = data.next_check || '--:--:--';
+                document.getElementById('last-updated').textContent = `آخر تحديث: ${data.last_updated || new Date().toLocaleTimeString('ar-EG')}`;
+                
+                // تحديث الرسم البياني
                 updateChart(data.trades);
-             
+                
+                showNotification('تم تحديث البيانات بنجاح', true);
+                
             } catch (error) {
                 console.error('Error updating UI:', error);
-                showNotification('فشل في تحديث البيانات: ' + error.message, false);
             }
-        }
-
-        // دالة لتحديث الرسم البياني (اختياري)
-        function updateChart(trades) {
-            // يمكنك تنفيذ منطق مشابه لإنشاء مخطط بأرباح حقيقية
-            // بناءً على تاريخ الصفقات (trades)
         }
 
         // تحديث البيانات كل 30 ثانية
         setInterval(updateUI, 30000);
-    
+        
         // تحديث البيانات عند تحميل الصفحة
         document.addEventListener('DOMContentLoaded', function() {
             updateUI();
