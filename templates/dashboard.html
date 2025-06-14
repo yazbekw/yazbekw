@@ -177,7 +177,42 @@
         .notification-error {
             background-color: var(--danger-color);
         }
-        
+
+        /* الأنماط الجديدة */
+        #portfolio-chart {
+            width: 100% !important;
+            height: 250px !important;
+        }
+
+        .symbol-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            margin: 2px;
+            font-size: 0.8rem;
+            background-color: #e9ecef;
+            color: #495057;
+        }
+
+        .profit-badge {
+            background-color: rgba(39, 174, 96, 0.15);
+            color: #27ae60;
+        }
+
+        .loss-badge {
+            background-color: rgba(231, 76, 60, 0.15);
+            color: #e74c3c;
+        }
+
+        .symbol-filter {
+            margin-bottom: 15px;
+        }
+
+        .symbol-btn {
+            margin-left: 5px;
+            margin-bottom: 5px;
+        }
+
         @media (max-width: 768px) {
             .stat-value {
                 font-size: 1.5rem;
@@ -216,9 +251,9 @@
             <div class="col-md-3">
                 <div class="card">
                     <div class="stat-card">
-                        <i class="fab fa-bitcoin fa-2x text-warning"></i>
-                        <div class="stat-value" id="balance-btc">0.000000</div>
-                        <div class="stat-label">رصيد BTC</div>
+                        <i class="fas fa-coins fa-2x text-warning"></i>
+                        <div class="stat-value" id="total-coins">0</div>
+                        <div class="stat-label">عدد العملات</div>
                     </div>
                 </div>
             </div>
@@ -242,8 +277,22 @@
             </div>
         </div>
         
+        <!-- فلتر العملات -->
+        <div class="row mt-3">
+            <div class="col-12">
+                <div class="card symbol-filter">
+                    <div class="card-body py-2">
+                        <div class="btn-group" id="symbol-filter">
+                            <button class="btn btn-outline-secondary active" data-symbol="all">الكل</button>
+                            <!-- سيتم ملؤها بالجافاسكريبت -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
         <!-- الصفقة الحالية وتفاصيل التداول -->
-        <div class="row mt-4">
+        <div class="row mt-2">
             <div class="col-lg-6">
                 <div class="card">
                     <div class="card-header d-flex justify-content-between align-items-center">
@@ -252,7 +301,7 @@
                     </div>
                     <div class="card-body">
                         <div class="alert alert-info" id="no-trade-alert">
-                            لا توجد صفقة نشطة حالياً. البوت ينتظر إشارة شراء (الفحص كل 30 دقيقة)
+                            لا توجد صفقة نشطة حالياً. البوت ينتظر إشارة شراء
                         </div>
                         
                         <div id="active-trade-details" style="display: none;">
@@ -260,13 +309,13 @@
                                 <div class="col-md-6">
                                     <div class="mb-3">
                                         <label class="form-label">زوج التداول</label>
-                                        <div class="form-control bg-light">BTC/USDT</div>
+                                        <div class="form-control bg-light" id="trade-symbol">--/--</div>
                                     </div>
                                 </div>
                                 <div class="col-md-6">
                                     <div class="mb-3">
                                         <label class="form-label">نوع الصفقة</label>
-                                        <div class="form-control bg-light">شراء</div>
+                                        <div class="form-control bg-light" id="trade-type">--</div>
                                     </div>
                                 </div>
                             </div>
@@ -342,6 +391,18 @@
                     </div>
                 </div>
                 
+                <!-- مخطط أداء المحفظة الجديد -->
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <i class="fas fa-chart-pie me-2"></i>أداء المحفظة
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container" style="height: 250px;">
+                            <canvas id="portfolio-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+                
                 <div class="card mt-4">
                     <div class="card-header">
                         <i class="fas fa-info-circle me-2"></i>معلومات النظام
@@ -350,14 +411,14 @@
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="mb-3">
-                                    <label class="form-label">زوج التداول</label>
-                                    <div class="form-control bg-light">BTC/USDT</div>
+                                    <label class="form-label">العملات النشطة</label>
+                                    <div class="form-control bg-light" id="active-symbols">--</div>
                                 </div>
                             </div>
                             <div class="col-md-6">
                                 <div class="mb-3">
                                     <label class="form-label">مبلغ الاستثمار</label>
-                                    <div class="form-control bg-light">9.00 USDT</div>
+                                    <div class="form-control bg-light" id="investment-amount">0.00 USDT</div>
                                 </div>
                             </div>
                         </div>
@@ -400,7 +461,7 @@
         </div>
         
         <div class="text-center mt-5 mb-4 text-muted">
-            <p>نظام مراقبة بوت التداول الآلي | الإصدار 1.0</p>
+            <p>نظام مراقبة بوت التداول الآلي | الإصدار 1.1</p>
         </div>
     </div>
     
@@ -416,6 +477,9 @@
     </div>
     
     <script>
+        // متغير لتخزين العملة المحددة
+        let selectedSymbol = localStorage.getItem('selectedSymbol') || 'all';
+        
         // دالة لجلب البيانات من الخادم
         async function fetchData() {
             try {
@@ -457,8 +521,8 @@
             }, 5000);
         }
 
-        // دالة لتحديث الرسم البياني
-        function updateChart(trades) {
+        // دالة لتحديث الرسم البياني للأداء
+        function updatePerformanceChart(trades) {
             const ctx = document.getElementById('performance-chart').getContext('2d');
             
             // تصفية الصفقات المكتملة فقط
@@ -509,15 +573,134 @@
             });
         }
 
+        // دالة لتحديث مخطط المحفظة
+        function updatePortfolioChart(portfolio) {
+            const ctx = document.getElementById('portfolio-chart').getContext('2d');
+            
+            const symbols = Object.keys(portfolio || {});
+            const profits = symbols.map(sym => portfolio[sym].current_profit || 0);
+            
+            if (window.portfolioChart) {
+                window.portfolioChart.destroy();
+            }
+            
+            window.portfolioChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: symbols,
+                    datasets: [{
+                        label: 'الربح الحالي (USDT)',
+                        data: profits,
+                        backgroundColor: symbols.map((_, i) => 
+                            `hsl(${(i * 360 / symbols.length)}, 70%, 60%)`
+                        ),
+                        borderColor: symbols.map((_, i) => 
+                            `hsl(${(i * 360 / symbols.length)}, 70%, 40%)`
+                        ),
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.dataset.label}: ${context.raw.toFixed(2)}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return value + ' USDT';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // دالة لتحديث فلتر العملات
+        function updateSymbolFilter(portfolio) {
+            const filterContainer = document.getElementById('symbol-filter');
+            const symbols = Object.keys(portfolio || {});
+            
+            // إزالة الأزرار القديمة (باستثناء زر "الكل")
+            while (filterContainer.children.length > 1) {
+                filterContainer.removeChild(filterContainer.lastChild);
+            }
+            
+            // إضافة أزرار جديدة لكل عملة
+            symbols.forEach(symbol => {
+                const btn = document.createElement('button');
+                btn.className = `btn btn-outline-secondary symbol-btn ${selectedSymbol === symbol ? 'active' : ''}`;
+                btn.dataset.symbol = symbol;
+                btn.textContent = symbol;
+                btn.addEventListener('click', () => {
+                    selectedSymbol = symbol;
+                    localStorage.setItem('selectedSymbol', symbol);
+                    
+                    // تحديث حالة الأزرار
+                    document.querySelectorAll('#symbol-filter button').forEach(b => {
+                        b.classList.remove('active');
+                    });
+                    btn.classList.add('active');
+                    
+                    // تحديث الواجهة
+                    updateUI();
+                });
+                
+                filterContainer.appendChild(btn);
+            });
+            
+            // إضافة حدث لزر "الكل"
+            document.querySelector('#symbol-filter button[data-symbol="all"]').addEventListener('click', () => {
+                selectedSymbol = 'all';
+                localStorage.setItem('selectedSymbol', 'all');
+                
+                // تحديث حالة الأزرار
+                document.querySelectorAll('#symbol-filter button').forEach(b => {
+                    b.classList.remove('active');
+                });
+                document.querySelector('#symbol-filter button[data-symbol="all"]').classList.add('active');
+                
+                // تحديث الواجهة
+                updateUI();
+            });
+        }
+
         // دالة لتحديث الواجهة بالبيانات الجديدة
         async function updateUI() {
             try {
                 const data = await fetchData();
                 
+                // تحديث قائمة العملات
+                const activeSymbols = Object.keys(data.portfolio || {});
+                document.getElementById('active-symbols').textContent = activeSymbols.join(', ');
+                document.getElementById('total-coins').textContent = activeSymbols.length;
+                
+                // تحديث فلتر العملات
+                updateSymbolFilter(data.portfolio);
+                
+                // تحديث مخطط المحفظة
+                updatePortfolioChart(data.portfolio);
+                
+                // حساب إجمالي الاستثمار
+                let totalInvestment = 0;
+                if (data.portfolio) {
+                    totalInvestment = Object.values(data.portfolio).reduce((sum, coin) => sum + (coin.investment || 0), 0);
+                }
+                document.getElementById('investment-amount').textContent = totalInvestment.toFixed(2) + ' USDT';
+                
                 // تحديث الرصيد
                 if (data.balance && data.balance.free) {
                     document.getElementById('balance-usdt').textContent = data.balance.free.USDT ? data.balance.free.USDT.toFixed(2) : '0.00';
-                    document.getElementById('balance-btc').textContent = data.balance.free.BTC ? data.balance.free.BTC.toFixed(6) : '0.000000';
                 }
                 
                 // تحديث إجمالي الأرباح
@@ -530,13 +713,22 @@
                 // تحديث إجمالي الصفقات
                 document.getElementById('total-trades').textContent = data.trades ? data.trades.length : 0;
                 
+                // تصفية الصفقات حسب العملة المحددة
+                let filteredTrades = data.trades || [];
+                if (selectedSymbol !== 'all') {
+                    filteredTrades = filteredTrades.filter(trade => trade.symbol === selectedSymbol);
+                }
+                
                 // تحديث الصفقة الحالية
-                if (data.open_trade && data.open_trade.is_open) {
+                if (data.open_trade && data.open_trade.is_open && 
+                    (selectedSymbol === 'all' || data.open_trade.symbol === selectedSymbol)) {
                     document.getElementById('trade-status').textContent = "صفقة نشطة";
                     document.getElementById('trade-status').className = "status-badge status-active";
                     document.getElementById('no-trade-alert').style.display = 'none';
                     document.getElementById('active-trade-details').style.display = 'block';
                     
+                    document.getElementById('trade-symbol').textContent = data.open_trade.symbol || '--/--';
+                    document.getElementById('trade-type').textContent = data.open_trade.type === 'BUY' ? 'شراء' : 'بيع';
                     document.getElementById('trade-buy-price').textContent = data.open_trade.buy_price ? data.open_trade.buy_price.toFixed(2) : '0.00';
                     document.getElementById('trade-amount').textContent = data.open_trade.amount ? data.open_trade.amount.toFixed(6) : '0.000000';
                     document.getElementById('trade-value').textContent = (data.open_trade.buy_price * data.open_trade.amount).toFixed(2);
@@ -557,8 +749,8 @@
                 const tradesContainer = document.getElementById('trades-container');
                 tradesContainer.innerHTML = '';
                 
-                if (data.trades && data.trades.length > 0) {
-                    data.trades.forEach(trade => {
+                if (filteredTrades && filteredTrades.length > 0) {
+                    filteredTrades.forEach(trade => {
                         const tradeDiv = document.createElement('div');
                         tradeDiv.className = `trade-item ${trade.type === 'BUY' ? 'trade-buy' : 'trade-sell'}`;
                         
@@ -573,7 +765,7 @@
                         tradeDiv.innerHTML = `
                             <div class="row align-items-center">
                                 <div class="col-3">${tradeType}</div>
-                                <div class="col-3">${trade.amount ? trade.amount.toFixed(6) : '0.000000'} BTC</div>
+                                <div class="col-3">${trade.amount ? trade.amount.toFixed(6) : '0.000000'} ${trade.symbol ? trade.symbol.split('/')[0] : '--'}</div>
                                 <div class="col-3">${trade.price ? trade.price.toFixed(2) : '0.00'}</div>
                                 <div class="col-3 text-end">
                                     <div>${trade.time || '--/--/-- --:--:--'}</div>
@@ -594,8 +786,8 @@
                 document.getElementById('next-check').textContent = data.next_check || '--:--:--';
                 document.getElementById('last-updated').textContent = `آخر تحديث: ${data.last_updated || new Date().toLocaleTimeString('ar-EG')}`;
                 
-                // تحديث الرسم البياني
-                updateChart(data.trades);
+                // تحديث الرسم البياني للأداء
+                updatePerformanceChart(filteredTrades);
                 
                 showNotification('تم تحديث البيانات بنجاح', true);
                 
