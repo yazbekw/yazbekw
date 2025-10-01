@@ -5,7 +5,6 @@ import asyncio
 import os
 import time
 import math
-import schedule
 import threading
 from datetime import datetime
 import logging
@@ -196,22 +195,6 @@ class BTCAnalyzer:
             'position': position
         }
 
-    @staticmethod
-    def calculate_atr(high_prices, low_prices, close_prices, period=14):
-        """حساب متوسط المدى الحقيقي (ATR)"""
-        if len(high_prices) < period + 1:
-            return 0
-        
-        true_ranges = []
-        for i in range(1, len(high_prices)):
-            high_low = high_prices[i] - low_prices[i]
-            high_close = abs(high_prices[i] - close_prices[i-1])
-            low_close = abs(low_prices[i] - close_prices[i-1])
-            true_range = max(high_low, high_close, low_close)
-            true_ranges.append(true_range)
-        
-        return sum(true_ranges[-period:]) / period
-
 class TradingBot:
     """بوت التداول الرئيسي"""
     
@@ -226,10 +209,10 @@ class TradingBot:
             'signals_found': 0,
             'trades_executed': 0,
             'last_scan': None,
-            'start_time': datetime.now()
+            'start_time': datetime.now(),
+            'last_report': None
         }
         
-        self.start_monitoring()
         self.send_startup_message()
 
     def calculate_signal_strength(self, value, buy_thresh, sell_thresh):
@@ -246,6 +229,7 @@ class TradingBot:
     def analyze_btc_signals(self):
         """تحليل إشارات BTC"""
         try:
+            logger.info("🔍 بدء تحليل BTC...")
             data = self.analyzer.get_btc_data(60)
             prices = data['prices']
             
@@ -309,17 +293,22 @@ class TradingBot:
             self.performance_stats['signals_found'] += 1 if overall != "محايد" else 0
             self.performance_stats['last_scan'] = datetime.now()
             
+            logger.info(f"✅ تم تحليل BTC - الإشارة: {overall}")
             return analysis
             
         except Exception as e:
-            logger.error(f"خطأ في تحليل الإشارات: {e}")
+            logger.error(f"❌ خطأ في تحليل الإشارات: {e}")
             return {"error": str(e)}
 
-    def send_analysis_report(self):
+    async def send_analysis_report(self):
         """إرسال تقرير التحليل إلى التلغرام"""
         try:
+            logger.info("📊 إعداد تقرير التحليل...")
             analysis = self.analyze_btc_signals()
             if "error" in analysis:
+                error_msg = f"❌ خطأ في التحليل: {analysis['error']}"
+                if self.notifier:
+                    self.notifier.send_message(error_msg, 'error')
                 return
             
             message = f"📊 **تقرير تحليل BTC التلقائي**\n"
@@ -341,16 +330,22 @@ class TradingBot:
             message += "\n⚠️ تحليل فني فقط - ليس نصيحة استثمارية"
             
             if self.notifier:
-                self.notifier.send_message(message, 'auto_analysis')
-            
-            logger.info(f"✅ تم إرسال تقرير التحليل - الإشارة: {analysis['overall_signal']}")
+                success = self.notifier.send_message(message, 'auto_analysis')
+                if success:
+                    logger.info(f"✅ تم إرسال تقرير التحليل - الإشارة: {analysis['overall_signal']}")
+                    self.performance_stats['last_report'] = datetime.now()
+                else:
+                    logger.error("❌ فشل إرسال تقرير التحليل")
+            else:
+                logger.warning("⚠️ الإشعارات غير مفعلة - لم يتم إرسال التقرير")
             
         except Exception as e:
             logger.error(f"❌ خطأ في إرسال تقرير التحليل: {e}")
 
-    def send_performance_report(self):
+    async def send_performance_report(self):
         """إرسال تقرير أداء البوت"""
         if not self.notifier:
+            logger.warning("⚠️ الإشعارات غير مفعلة - لم يتم إرسال تقرير الأداء")
             return
             
         try:
@@ -367,11 +362,15 @@ class TradingBot:
             message += f"🎯 إشارات تم اكتشافها: {self.performance_stats['signals_found']}\n"
             message += f"📊 معدل النجاح: {success_rate:.1f}%\n"
             message += f"🕒 آخر مسح: {self.performance_stats['last_scan'].strftime('%Y-%m-%d %H:%M:%S') if self.performance_stats['last_scan'] else 'N/A'}\n"
+            message += f"📨 آخر تقرير: {self.performance_stats['last_report'].strftime('%Y-%m-%d %H:%M:%S') if self.performance_stats['last_report'] else 'N/A'}\n"
             message += f"⚡ الحالة: 🟢 نشط\n\n"
             message += f"💡 البوت يعمل بشكل طبيعي ويقوم بالفحص كل 30 دقيقة"
             
-            self.notifier.send_message(message, 'performance_report')
-            logger.info("✅ تم إرسال تقرير الأداء")
+            success = self.notifier.send_message(message, 'performance_report')
+            if success:
+                logger.info("✅ تم إرسال تقرير الأداء")
+            else:
+                logger.error("❌ فشل إرسال تقرير الأداء")
             
         except Exception as e:
             logger.error(f"❌ خطأ في إرسال تقرير الأداء: {e}")
@@ -387,34 +386,46 @@ class TradingBot:
                 "• مؤشرات RSI, MACD, Bollinger Bands\n"
                 "• إشعارات تلقائية كل 30 دقيقة\n"
                 "• تقارير أداء دورية\n\n"
-                f"⏰ وقت البدء: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                f"⏰ وقت البدء: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                f"🔔 سيتم إرسال أول تقرير خلال 30 دقيقة"
             )
             self.notifier.send_message(message, 'startup')
             logger.info("✅ تم إرسال رسالة بدء التشغيل")
 
-    def start_monitoring(self):
-        """بدء المراقبة التلقائية"""
-        # جدولة المهام
-        schedule.every(30).minutes.do(self.send_analysis_report)
-        schedule.every(6).hours.do(self.send_performance_report)
-        
-        # تشغيل المجدول في thread منفصل
-        def run_scheduler():
-            while True:
-                try:
-                    schedule.run_pending()
-                    time.sleep(1)
-                except Exception as e:
-                    logger.error(f"خطأ في المجدول: {e}")
-                    time.sleep(60)
-        
-        scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
-        scheduler_thread.start()
-        
-        logger.info("✅ بدء المراقبة التلقائية كل 30 دقيقة")
-
 # تهيئة البوت
 bot = TradingBot()
+
+# المهام التلقائية
+async def auto_monitoring():
+    """المهمة التلقائية للمراقبة"""
+    logger.info("🚀 بدء المهام التلقائية...")
+    
+    # انتظار 5 ثواني عند البدء
+    await asyncio.sleep(5)
+    
+    # إرسال تقرير فوري للاختبار
+    await bot.send_analysis_report()
+    
+    counter = 0
+    while True:
+        try:
+            # كل 30 دقيقة: إرسال تقرير التحليل
+            if counter % 6 == 0:  # 30 دقيقة (5 دقائق × 6 = 30)
+                logger.info("⏰ وقت إرسال التقرير التلقائي (30 دقيقة)")
+                await bot.send_analysis_report()
+            
+            # كل 6 ساعات: إرسال تقرير الأداء
+            if counter % 72 == 0:  # 6 ساعات (5 دقائق × 72 = 360 دقيقة)
+                logger.info("📈 وقت إرسال تقرير الأداء (6 ساعات)")
+                await bot.send_performance_report()
+            
+            counter += 1
+            logger.info(f"🕒 انتظار 5 دقائق للدورة التالية... (الدورة: {counter})")
+            await asyncio.sleep(300)  # انتظار 5 دقائق
+            
+        except Exception as e:
+            logger.error(f"❌ خطأ في المهمة التلقائية: {e}")
+            await asyncio.sleep(60)  # انتظار دقيقة ثم إعادة المحاولة
 
 # Endpoints لـ FastAPI
 @app.get("/")
@@ -424,7 +435,15 @@ async def root():
         "status": "نشط",
         "version": "2.0.0",
         "monitoring": "مفعل كل 30 دقيقة",
-        "endpoints": ["/analysis", "/health", "/performance", "/test-telegram"]
+        "performance": bot.performance_stats,
+        "endpoints": [
+            "/analysis", 
+            "/health", 
+            "/performance", 
+            "/test-telegram",
+            "/send-report",
+            "/send-performance"
+        ]
     }
 
 @app.get("/analysis")
@@ -452,11 +471,8 @@ async def health_check():
             "api_status": api_status,
             "timestamp": datetime.now().isoformat(),
             "telegram_configured": bool(TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID),
-            "performance": {
-                "total_scans": bot.performance_stats['total_scans'],
-                "signals_found": bot.performance_stats['signals_found'],
-                "uptime": str(datetime.now() - bot.performance_stats['start_time'])
-            }
+            "performance": bot.performance_stats,
+            "monitoring_active": True
         }
     except Exception as e:
         return JSONResponse(
@@ -473,7 +489,8 @@ async def get_performance():
     """الحصول على إحصائيات الأداء"""
     return {
         "performance_stats": bot.performance_stats,
-        "current_time": datetime.now().isoformat()
+        "current_time": datetime.now().isoformat(),
+        "monitoring_status": "نشط"
     }
 
 @app.post("/test-telegram")
@@ -499,13 +516,32 @@ async def test_telegram():
 async def send_manual_report():
     """إرسال تقرير يدوي"""
     try:
-        bot.send_analysis_report()
+        await bot.send_analysis_report()
         return {"message": "تم إرسال التقرير بنجاح"}
     except Exception as e:
         return JSONResponse(
             status_code=500,
             content={"error": f"فشل في إرسال التقرير: {str(e)}"}
         )
+
+@app.post("/send-performance")
+async def send_performance_report():
+    """إرسال تقرير أداء يدوي"""
+    try:
+        await bot.send_performance_report()
+        return {"message": "تم إرسال تقرير الأداء بنجاح"}
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"فشل في إرسال تقرير الأداء: {str(e)}"}
+        )
+
+# بدء المهام التلقائية عند تشغيل التطبيق
+@app.on_event("startup")
+async def startup_event():
+    """بدء المهام التلقائية عند تشغيل التطبيق"""
+    logger.info("🚀 بدء تشغيل المهام التلقائية...")
+    asyncio.create_task(auto_monitoring())
 
 if __name__ == "__main__":
     import uvicorn
