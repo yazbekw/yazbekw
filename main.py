@@ -6,7 +6,7 @@ import time
 import math
 from datetime import datetime
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import json
 import random
 
@@ -15,14 +15,23 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="BTC Trading Bot",
-    description="Bitcoin analysis with multiple data sources",
-    version="3.1.0"
+    title="Crypto Trading Bot",
+    description="Multi-crypto analysis with multiple data sources",
+    version="4.0.0"
 )
 
 # إعدادات التلغرام
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+
+# تعريف العملات المدعومة
+SUPPORTED_COINS = {
+    'btc': {'name': 'Bitcoin', 'coingecko_id': 'bitcoin', 'symbol': 'BTC'},
+    'eth': {'name': 'Ethereum', 'coingecko_id': 'ethereum', 'symbol': 'ETH'},
+    'bnb': {'name': 'Binance Coin', 'coingecko_id': 'binancecoin', 'symbol': 'BNB'},
+    'sol': {'name': 'Solana', 'coingecko_id': 'solana', 'symbol': 'SOL'},
+    'link': {'name': 'Chainlink', 'coingecko_id': 'chainlink', 'symbol': 'LINK'}
+}
 
 class MultiSourceDataFetcher:
     """جلب البيانات من مصادر متعددة لتجنب المحدودية"""
@@ -49,11 +58,11 @@ class MultiSourceDataFetcher:
             await asyncio.sleep(2)
         self.last_request_time = time.time()
 
-    async def _fetch_from_coingecko(self, days: int) -> Optional[Dict[str, Any]]:
+    async def _fetch_from_coingecko(self, coin_id: str, days: int) -> Optional[Dict[str, Any]]:
         """جلب البيانات من CoinGecko (المصدر الأساسي)"""
         try:
             await self._rate_limit()
-            url = f"https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days={days}"
+            url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart?vs_currency=usd&days={days}"
             
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -63,24 +72,38 @@ class MultiSourceDataFetcher:
             response = await self.client.get(url, headers=headers)
             
             if response.status_code == 429:
-                logger.warning("⚠️ تم تجاوز حد الطلبات في CoinGecko")
+                logger.warning(f"⚠️ تم تجاوز حد الطلبات في CoinGecko للعملة {coin_id}")
                 return None
                 
             response.raise_for_status()
             data = response.json()
             
-            return self._process_data(data)
+            return self._process_data(data, coin_id)
             
         except Exception as e:
-            logger.warning(f"⚠️ فشل جلب البيانات من CoinGecko: {e}")
+            logger.warning(f"⚠️ فشل جلب البيانات من CoinGecko للعملة {coin_id}: {e}")
             return None
 
-    async def _fetch_from_binance(self, days: int) -> Optional[Dict[str, Any]]:
+    async def _fetch_from_binance(self, coin_id: str, days: int) -> Optional[Dict[str, Any]]:
         """جلب البيانات من Binance API (بديل)"""
         try:
             await self._rate_limit()
-            # Binance لا توفر بيانات تاريخية بنفس الطريقة، لذا نستخدم سعر الحالي
-            url = "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"
+            
+            # تعيين رموز التداول في Binance
+            binance_symbols = {
+                'bitcoin': 'BTCUSDT',
+                'ethereum': 'ETHUSDT',
+                'binancecoin': 'BNBUSDT',
+                'solana': 'SOLUSDT',
+                'chainlink': 'LINKUSDT'
+            }
+            
+            symbol = binance_symbols.get(coin_id)
+            if not symbol:
+                return None
+                
+            # جلب السعر الحالي من Binance
+            url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}"
             response = await self.client.get(url)
             
             if response.status_code == 200:
@@ -88,32 +111,40 @@ class MultiSourceDataFetcher:
                 current_price = float(current_data['price'])
                 
                 # إنشاء بيانات محاكاة بناءً على السعر الحالي
-                return self._generate_simulated_data_based_on_price(current_price, days)
+                return self._generate_simulated_data_based_on_price(current_price, days, coin_id)
                 
             return None
             
         except Exception as e:
-            logger.warning(f"⚠️ فشل جلب البيانات من Binance: {e}")
+            logger.warning(f"⚠️ فشل جلب البيانات من Binance للعملة {coin_id}: {e}")
             return None
 
-    async def _fetch_from_yahoo(self, days: int) -> Optional[Dict[str, Any]]:
+    async def _fetch_from_yahoo(self, coin_id: str, days: int) -> Optional[Dict[str, Any]]:
         """جلب البيانات من Yahoo Finance (بديل)"""
         try:
             await self._rate_limit()
             # Yahoo Finance يحتاج إلى معالجة أكثر تعقيداً
             # نعود إلى البيانات المحاكاة مؤقتاً
-            return self._generate_simulated_data(days)
+            return self._generate_simulated_data(days, coin_id)
             
         except Exception as e:
-            logger.warning(f"⚠️ فشل جلب البيانات من Yahoo: {e}")
+            logger.warning(f"⚠️ فشل جلب البيانات من Yahoo للعملة {coin_id}: {e}")
             return None
 
-    def _generate_simulated_data(self, days: int) -> Dict[str, Any]:
+    def _generate_simulated_data(self, days: int, coin_id: str) -> Dict[str, Any]:
         """إنشاء بيانات محاكاة واقعية"""
-        logger.info("🔄 استخدام بيانات محاكاة واقعية")
+        logger.info(f"🔄 استخدام بيانات محاكاة واقعية للعملة {coin_id}")
         
-        # سعر بداية واقعي (بناءً على آخر سعر معروف)
-        base_price = 60000  
+        # أسعار بداية واقعية للعملات المختلفة
+        base_prices = {
+            'bitcoin': 60000,
+            'ethereum': 3500,
+            'binancecoin': 600,
+            'solana': 150,
+            'chainlink': 18
+        }
+        
+        base_price = base_prices.get(coin_id, 1000)
         prices = []
         volumes = []
         
@@ -124,11 +155,21 @@ class MultiSourceDataFetcher:
             price = base_price * (1 + change)
             prices.append(price)
             
-            # حجم تداول واقعي
-            volume = random.uniform(10000000, 50000000)
+            # حجم تداول واقعي (يختلف حسب العملة)
+            volume_multipliers = {
+                'bitcoin': 1.0,
+                'ethereum': 0.8,
+                'binancecoin': 0.3,
+                'solana': 0.2,
+                'chainlink': 0.1
+            }
+            multiplier = volume_multipliers.get(coin_id, 0.5)
+            volume = random.uniform(10000000, 50000000) * multiplier
             volumes.append(volume)
             
             base_price = price  # تحديث السعر الأساسي
+        
+        coin_info = self._get_coin_info(coin_id)
         
         return {
             'prices': prices,
@@ -136,10 +177,13 @@ class MultiSourceDataFetcher:
             'current_price': prices[-1] if prices else base_price,
             'current_volume': volumes[-1] if volumes else 25000000,
             'source': 'simulated',
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.now().isoformat(),
+            'coin_id': coin_id,
+            'coin_name': coin_info['name'],
+            'coin_symbol': coin_info['symbol']
         }
 
-    def _generate_simulated_data_based_on_price(self, current_price: float, days: int) -> Dict[str, Any]:
+    def _generate_simulated_data_based_on_price(self, current_price: float, days: int, coin_id: str) -> Dict[str, Any]:
         """إنشاء بيانات محاكاة بناءً على سعر حقيقي"""
         prices = []
         volumes = []
@@ -157,8 +201,19 @@ class MultiSourceDataFetcher:
             price = target_price * (1 + random.uniform(-volatility, volatility))
             prices.append(price)
             
-            volume = random.uniform(10000000, 50000000)
+            # حجم تداول واقعي (يختلف حسب العملة)
+            volume_multipliers = {
+                'bitcoin': 1.0,
+                'ethereum': 0.8,
+                'binancecoin': 0.3,
+                'solana': 0.2,
+                'chainlink': 0.1
+            }
+            multiplier = volume_multipliers.get(coin_id, 0.5)
+            volume = random.uniform(10000000, 50000000) * multiplier
             volumes.append(volume)
+        
+        coin_info = self._get_coin_info(coin_id)
         
         return {
             'prices': prices,
@@ -166,54 +221,69 @@ class MultiSourceDataFetcher:
             'current_price': current_price,
             'current_volume': volumes[-1] if volumes else 25000000,
             'source': 'binance_simulated',
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.now().isoformat(),
+            'coin_id': coin_id,
+            'coin_name': coin_info['name'],
+            'coin_symbol': coin_info['symbol']
         }
 
-    def _process_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def _get_coin_info(self, coin_id: str) -> Dict[str, str]:
+        """الحصول على معلومات العملة"""
+        for coin_key, coin_data in SUPPORTED_COINS.items():
+            if coin_data['coingecko_id'] == coin_id:
+                return coin_data
+        return {'name': coin_id, 'symbol': coin_id.upper()}
+
+    def _process_data(self, data: Dict[str, Any], coin_id: str) -> Dict[str, Any]:
         """معالجة البيانات من CoinGecko"""
+        coin_info = self._get_coin_info(coin_id)
+        
         return {
             'prices': [item[1] for item in data['prices']],
             'volumes': [item[1] for item in data['total_volumes']],
             'current_price': data['prices'][-1][1] if data['prices'] else 0,
             'current_volume': data['total_volumes'][-1][1] if data['total_volumes'] else 0,
             'source': 'coingecko',
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.now().isoformat(),
+            'coin_id': coin_id,
+            'coin_name': coin_info['name'],
+            'coin_symbol': coin_info['symbol']
         }
 
-    async def get_btc_data(self, days: int = 30) -> Dict[str, Any]:
-        """جلب البيانات من أفضل مصدر متاح"""
-        cache_key = f"btc_data_{days}"
+    async def get_coin_data(self, coin_id: str, days: int = 30) -> Dict[str, Any]:
+        """جلب البيانات من أفضل مصدر متاح لعملة محددة"""
+        cache_key = f"{coin_id}_data_{days}"
         current_time = time.time()
         
         # التحقق من الذاكرة المؤقتة أولاً
         if cache_key in self.cache:
             cached_data, timestamp = self.cache[cache_key]
             if current_time - timestamp < self.cache_ttl:
-                logger.info("✅ استخدام البيانات من الذاكرة المؤقتة")
+                logger.info(f"✅ استخدام البيانات من الذاكرة المؤقتة للعملة {coin_id}")
                 return cached_data
         
         # تجربة جميع المصادر بالترتيب
         for source in self.data_sources:
             try:
                 if asyncio.iscoroutinefunction(source):
-                    data = await source(days)
+                    data = await source(coin_id, days)
                 else:
-                    data = source(days)
+                    data = source(days, coin_id)
                     
                 if data is not None:
-                    logger.info(f"✅ تم جلب البيانات من {data.get('source', 'unknown')}")
+                    logger.info(f"✅ تم جلب البيانات من {data.get('source', 'unknown')} للعملة {coin_id}")
                     
                     # تخزين في الذاكرة المؤقتة
                     self.cache[cache_key] = (data, current_time)
                     return data
                     
             except Exception as e:
-                logger.warning(f"⚠️ فشل المصدر: {e}")
+                logger.warning(f"⚠️ فشل المصدر للعملة {coin_id}: {e}")
                 continue
         
         # إذا فشلت جميع المصادر، نستخدم البيانات المحاكاة
-        logger.warning("🔄 استخدام البيانات المحاكاة بعد فشل جميع المصادر")
-        data = self._generate_simulated_data(days)
+        logger.warning(f"🔄 استخدام البيانات المحاكاة بعد فشل جميع المصادر للعملة {coin_id}")
+        data = self._generate_simulated_data(days, coin_id)
         self.cache[cache_key] = (data, current_time)
         return data
 
@@ -221,8 +291,8 @@ class MultiSourceDataFetcher:
         """إغلاق العميل"""
         await self.client.aclose()
 
-class RobustBTCAnalyzer:
-    """محلل BTC قوي مع معالجة الأخطاء"""
+class RobustCryptoAnalyzer:
+    """محلل العملات المشفرة القوي مع معالجة الأخطاء"""
     
     def __init__(self):
         self.data_fetcher = MultiSourceDataFetcher()
@@ -231,16 +301,23 @@ class RobustBTCAnalyzer:
             'successful_analyses': 0,
             'failed_analyses': 0,
             'data_source_usage': {},
-            'last_successful_analysis': None
+            'last_successful_analysis': None,
+            'coins_analyzed': list(SUPPORTED_COINS.keys())
         }
 
-    async def analyze_btc(self) -> Dict[str, Any]:
-        """تحليل BTC مع معالجة قوية للأخطاء"""
+    async def analyze_coin(self, coin: str) -> Dict[str, Any]:
+        """تحليل عملة محددة مع معالجة قوية للأخطاء"""
         try:
-            logger.info("🔍 بدء تحليل BTC...")
+            logger.info(f"🔍 بدء تحليل {coin}...")
+            
+            # التحقق من دعم العملة
+            if coin not in SUPPORTED_COINS:
+                raise HTTPException(status_code=400, detail=f"العملة {coin} غير مدعومة")
+            
+            coin_id = SUPPORTED_COINS[coin]['coingecko_id']
             
             # جلب البيانات
-            data = await self.data_fetcher.get_btc_data(30)
+            data = await self.data_fetcher.get_coin_data(coin_id, 30)
             self.performance_stats['total_analyses'] += 1
             
             # تحديث إحصائيات مصدر البيانات
@@ -253,27 +330,61 @@ class RobustBTCAnalyzer:
             
             analysis = {
                 'timestamp': datetime.now().isoformat(),
+                'coin': coin,
+                'coin_name': data.get('coin_name', SUPPORTED_COINS[coin]['name']),
+                'coin_symbol': data.get('coin_symbol', SUPPORTED_COINS[coin]['symbol']),
                 'price': round(data['current_price'], 2),
                 'volume': round(data['current_volume'], 2),
                 'data_source': source,
                 'indicators': indicators,
                 'overall_signal': self._determine_signal(indicators),
                 'reliability': 'high' if source == 'coingecko' else 'medium',
-                'analysis_id': f"ANA_{int(time.time())}"
+                'analysis_id': f"ANA_{coin.upper()}_{int(time.time())}"
             }
             
             self.performance_stats['successful_analyses'] += 1
             self.performance_stats['last_successful_analysis'] = datetime.now()
             
-            logger.info(f"✅ تحليل ناجح - الإشارة: {analysis['overall_signal']}")
+            logger.info(f"✅ تحليل ناجح لـ {coin} - الإشارة: {analysis['overall_signal']}")
             return analysis
             
         except Exception as e:
             self.performance_stats['failed_analyses'] += 1
-            logger.error(f"❌ فشل في التحليل: {e}")
+            logger.error(f"❌ فشل في تحليل {coin}: {e}")
             
             # تحليل بديل باستخدام بيانات افتراضية
-            return await self._get_fallback_analysis()
+            return await self._get_fallback_analysis(coin)
+
+    async def analyze_all_coins(self) -> Dict[str, Any]:
+        """تحليل جميع العملات المدعومة"""
+        logger.info("🔍 بدء تحليل جميع العملات...")
+        
+        analyses = {}
+        tasks = []
+        
+        # إنشاء مهام لجميع العملات
+        for coin in SUPPORTED_COINS.keys():
+            task = asyncio.create_task(self.analyze_coin(coin))
+            tasks.append((coin, task))
+        
+        # انتظار اكتمال جميع المهام
+        for coin, task in tasks:
+            try:
+                analysis = await task
+                analyses[coin] = analysis
+            except Exception as e:
+                logger.error(f"❌ فشل في تحليل {coin}: {e}")
+                analyses[coin] = await self._get_fallback_analysis(coin)
+        
+        # حساب إشارة عامة
+        overall_signal = self._calculate_overall_signal(analyses)
+        
+        return {
+            'timestamp': datetime.now().isoformat(),
+            'overall_signal': overall_signal,
+            'coins_analyzed': len(analyses),
+            'analyses': analyses
+        }
 
     def _calculate_basic_indicators(self, prices: list) -> Dict[str, Any]:
         """حساب المؤشرات الأساسية"""
@@ -350,6 +461,41 @@ class RobustBTCAnalyzer:
         else:
             return "محايد"
 
+    def _calculate_overall_signal(self, analyses: Dict[str, Any]) -> str:
+        """حساب الإشارة العامة بناءً على جميع التحليلات"""
+        signals = {
+            "شراء قوي": 2,
+            "شراء": 1,
+            "محايد": 0,
+            "بيع": -1,
+            "بيع قوي": -2
+        }
+        
+        total_score = 0
+        valid_analyses = 0
+        
+        for coin, analysis in analyses.items():
+            signal = analysis.get('overall_signal', 'محايد')
+            if signal in signals:
+                total_score += signals[signal]
+                valid_analyses += 1
+        
+        if valid_analyses == 0:
+            return "محايد"
+        
+        average_score = total_score / valid_analyses
+        
+        if average_score >= 1.5:
+            return "شراء قوي"
+        elif average_score >= 0.5:
+            return "شراء"
+        elif average_score <= -1.5:
+            return "بيع قوي"
+        elif average_score <= -0.5:
+            return "بيع"
+        else:
+            return "محايد"
+
     def _get_default_indicators(self, current_price: float) -> Dict[str, Any]:
         """الحصول على مؤشرات افتراضية"""
         return {
@@ -362,17 +508,30 @@ class RobustBTCAnalyzer:
             'note': 'بيانات افتراضية بسبب مشكلة في المصدر'
         }
 
-    async def _get_fallback_analysis(self) -> Dict[str, Any]:
+    async def _get_fallback_analysis(self, coin: str) -> Dict[str, Any]:
         """تحليل بديل عند الفشل"""
+        fallback_prices = {
+            'btc': 61750.0,
+            'eth': 3500.0,
+            'bnb': 600.0,
+            'sol': 150.0,
+            'link': 18.0
+        }
+        
+        fallback_price = fallback_prices.get(coin, 100.0)
+        
         return {
             'timestamp': datetime.now().isoformat(),
-            'price': 61750.0,  # سعر افتراضي
+            'coin': coin,
+            'coin_name': SUPPORTED_COINS[coin]['name'],
+            'coin_symbol': SUPPORTED_COINS[coin]['symbol'],
+            'price': fallback_price,
             'volume': 25000000,
             'data_source': 'fallback',
-            'indicators': self._get_default_indicators(61750.0),
+            'indicators': self._get_default_indicators(fallback_price),
             'overall_signal': 'محايد',
             'reliability': 'low',
-            'analysis_id': f"FBA_{int(time.time())}",
+            'analysis_id': f"FBA_{coin.upper()}_{int(time.time())}",
             'note': 'هذا تحليل افتراضي بسبب مشكلة تقنية'
         }
 
@@ -424,7 +583,7 @@ class TelegramNotifier:
             return False
 
 # تهيئة المكونات
-analyzer = RobustBTCAnalyzer()
+analyzer = RobustCryptoAnalyzer()
 notifier = TelegramNotifier(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
 
 # المهمة التلقائية
@@ -434,32 +593,26 @@ async def auto_analysis_task():
     
     while True:
         try:
-            # تحليل BTC
-            analysis = await analyzer.analyze_btc()
+            # تحليل جميع العملات
+            all_analyses = await analyzer.analyze_all_coins()
             
             # إنشاء رسالة التقرير
-            message = f"📊 **تقرير تحليل BTC**\n"
+            message = f"📊 **تقرير تحليل العملات المشفرة**\n"
             message += f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
-            message += f"💰 السعر: ${analysis['price']:,.2f}\n"
-            message += f"📈 المصدر: {analysis['data_source']}\n"
-            message += f"🎯 الموثوقية: {analysis['reliability']}\n\n"
+            message += f"🎯 الإشارة العامة: {all_analyses['overall_signal']}\n"
+            message += f"💰 العملات المحللة: {all_analyses['coins_analyzed']}\n\n"
             
-            message += "**المؤشرات:**\n"
-            for key, value in analysis['indicators'].items():
-                if key != 'note':
-                    message += f"• {key.replace('_', ' ').title()}: {value}\n"
+            message += "**التحليلات التفصيلية:**\n"
+            for coin, analysis in all_analyses['analyses'].items():
+                message += f"• {analysis['coin_symbol']}: ${analysis['price']:,.2f} - {analysis['overall_signal']}\n"
             
-            if 'note' in analysis['indicators']:
-                message += f"\n📝 ملاحظة: {analysis['indicators']['note']}\n"
-            
-            message += f"\n**🎯 الإشارة: {analysis['overall_signal']}**\n"
-            message += f"🆔 رقم التحليل: {analysis['analysis_id']}\n"
+            message += f"\n🆔 رقم التقرير: ALL_{int(time.time())}\n"
             message += "\n⚠️ تحليل فني - ليس نصيحة استثمارية"
             
             # إرسال التقرير
             await notifier.send_message(message)
             
-            logger.info(f"✅ تم إكمال دورة التحليل - الإشارة: {analysis['overall_signal']}")
+            logger.info(f"✅ تم إكمال دورة التحليل - الإشارة العامة: {all_analyses['overall_signal']}")
             
             # الانتظار 30 دقيقة
             await asyncio.sleep(1800)
@@ -472,10 +625,12 @@ async def auto_analysis_task():
 @app.get("/")
 async def root():
     return {
-        "message": "مرحباً في BTC Trading Bot المحسن",
+        "message": "مرحباً في Crypto Trading Bot المحسن",
         "status": "نشط",
-        "version": "3.1.0",
+        "version": "4.0.0",
+        "supported_coins": SUPPORTED_COINS,
         "features": [
+            "دعم متعدد العملات (BTC, ETH, BNB, SOL, LINK)",
             "مصادر بيانات متعددة",
             "معالجة حدود الطلبات",
             "تحليل بديل عند الفشل",
@@ -484,10 +639,23 @@ async def root():
         "performance": analyzer.performance_stats
     }
 
+@app.get("/analysis/{coin}")
+async def get_coin_analysis(coin: str):
+    """الحصول على التحليل الحالي لعملة محددة"""
+    return await analyzer.analyze_coin(coin.lower())
+
 @app.get("/analysis")
-async def get_analysis():
-    """الحصول على التحليل الحالي"""
-    return await analyzer.analyze_btc()
+async def get_all_analysis():
+    """الحصول على تحليل جميع العملات"""
+    return await analyzer.analyze_all_coins()
+
+@app.get("/coins")
+async def get_supported_coins():
+    """الحصول على قائمة العملات المدعومة"""
+    return {
+        "supported_coins": SUPPORTED_COINS,
+        "total_coins": len(SUPPORTED_COINS)
+    }
 
 @app.get("/health")
 async def health_check():
@@ -496,22 +664,42 @@ async def health_check():
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
         "performance": analyzer.performance_stats,
-        "telegram_configured": bool(TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID)
+        "telegram_configured": bool(TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID),
+        "supported_coins_count": len(SUPPORTED_COINS)
     }
 
 @app.post("/send-report")
 async def send_report():
     """إرسال تقرير يدوي"""
-    analysis = await analyzer.analyze_btc()
+    all_analyses = await analyzer.analyze_all_coins()
     
-    message = f"📊 **تقرير يدوي لـ BTC**\n"
+    message = f"📊 **تقرير يدوي للعملات المشفرة**\n"
     message += f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
-    message += f"💰 السعر: ${analysis['price']:,.2f}\n"
-    message += f"🎯 الإشارة: {analysis['overall_signal']}\n"
-    message += f"📈 المصدر: {analysis['data_source']}"
+    message += f"🎯 الإشارة العامة: {all_analyses['overall_signal']}\n\n"
+    
+    for coin, analysis in all_analyses['analyses'].items():
+        message += f"• {analysis['coin_symbol']}: ${analysis['price']:,.2f} - {analysis['overall_signal']}\n"
     
     success = await notifier.send_message(message)
     return {"message": "تم إرسال التقرير", "success": success}
+
+@app.post("/send-coin-report/{coin}")
+async def send_coin_report(coin: str):
+    """إرسال تقرير يدوي لعملة محددة"""
+    analysis = await analyzer.analyze_coin(coin.lower())
+    
+    message = f"📊 **تقرير يدوي لـ {analysis['coin_name']}**\n"
+    message += f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
+    message += f"💰 السعر: ${analysis['price']:,.2f}\n"
+    message += f"🎯 الإشارة: {analysis['overall_signal']}\n"
+    message += f"📈 المصدر: {analysis['data_source']}\n\n"
+    
+    for key, value in analysis['indicators'].items():
+        if key != 'note':
+            message += f"• {key.replace('_', ' ').title()}: {value}\n"
+    
+    success = await notifier.send_message(message)
+    return {"message": f"تم إرسال تقرير {coin}", "success": success}
 
 # بدء المهمة التلقائية
 @app.on_event("startup")
