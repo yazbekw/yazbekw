@@ -573,7 +573,7 @@ async def market_monitoring_task():
                     )
                     
                     # تغيير الانتظار بين العملات إلى 10 دقائق (600 ثانية)
-                    await asyncio.sleep(600)
+                    await asyncio.sleep(20)
                     
                 except Exception as e:
                     logger.error(f"خطأ في تحليل {coin_key}: {e}", extra={"coin": coin_key, "source": "N/A"})
