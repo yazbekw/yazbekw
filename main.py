@@ -534,17 +534,37 @@ class CryptoDataFetcher:
         return {'prices': [], 'highs': [], 'lows': [], 'volumes': [], 'source': 'binance_failed'}
 
     async def _get_sentiment(self, coin_symbol: str) -> float:
-        """تحليل المشاعر البسيط من X (Twitter)"""
         try:
-            url = f"https://api.twitter.com/2/search/recent?query={coin_symbol} crypto&max_results=50"
+            # جلب معرف المستخدم
+            me_url = "https://api.twitter.com/2/users/me"
             headers = {"Authorization": f"Bearer {os.getenv('TWITTER_BEARER_TOKEN', '')}"}
-            response = await self.client.get(url, headers=headers)
-            if response.status_code == 200:
-                tweets = response.json().get('data', [])
-                positive_count = sum(1 for tweet in tweets if 'bullish' in tweet['text'].lower() or 'buy' in tweet['text'].lower())
-                return positive_count / len(tweets) if tweets else 0.5
-            logger.warning(f"فشل جلب المشاعر لـ {coin_symbol}: {response.status_code}")
-            return 0.5
+            me_response = await self.client.get(me_url, headers=headers)
+            if me_response.status_code != 200:
+                logger.warning(f"فشل جلب معرف المستخدم: {me_response.status_code}")
+                return 0.5
+
+            user_data = me_response.json()
+            user_id = user_data['data']['id']
+
+            # جلب التغريدات الخاصة
+            tweets_url = f"https://api.twitter.com/2/users/{user_id}/tweets?max_results=5"
+            tweets_response = await self.client.get(tweets_url, headers=headers)
+            if tweets_response.status_code != 200:
+                logger.warning(f"فشل جلب التغريدات: {tweets_response.status_code}")
+                return 0.5
+
+            tweets = tweets_response.json().get('data', [])
+            if not tweets:
+                logger.info(f"لا توجد تغريدات لتحليل المشاعر لـ {coin_symbol}")
+                return 0.5
+
+            # تحليل بسيط لكلمات مفتاحية
+            positive_count = sum(1 for tweet in tweets if 'bullish' in tweet['text'].lower() or 'buy' in tweet['text'].lower())
+            negative_count = sum(1 for tweet in tweets if 'bearish' in tweet['text'].lower() or 'sell' in tweet['text'].lower())
+            total_count = len(tweets)
+            sentiment_score = (positive_count - negative_count) / total_count if total_count > 0 else 0.5
+            return max(0.0, min(1.0, sentiment_score + 0.5))  # تحسين بين 0 و1
+
         except Exception as e:
             logger.error(f"خطأ في جلب المشاعر لـ {coin_symbol}: {e}")
             return 0.5
