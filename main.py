@@ -535,21 +535,14 @@ class CryptoDataFetcher:
         return {'prices': [], 'highs': [], 'lows': [], 'volumes': [], 'source': 'binance_failed'}
 
     async def _get_sentiment(self, coin_symbol: str) -> float:
-        """تحليل المشاعر البسيط من X (Twitter)"""
+        """تحليل المشاعر البسيط من X (Twitter) باستخدام user_id يدوي"""
         try:
-            # جلب معرف المستخدم أولاً
-            me_url = "https://api.twitter.com/2/users/me"
-            headers = {"Authorization": f"Bearer {os.getenv('TWITTER_BEARER_TOKEN', '')}"}
-            me_response = await self.client.get(me_url, headers=headers)
-            if me_response.status_code != 200:
-                logger.warning(f"فشل جلب معرف المستخدم: {me_response.status_code}")
-                return 0.5
+            # استخدام user_id يدوي (استبدل بقيمة حسابك الفعلية)
+            user_id = os.getenv("TWITTER_USER_ID", "1932080103292305408")  # يمكنك تعيينه في متغيرات البيئة
 
-            user_data = me_response.json()
-            user_id = user_data['data']['id']
-
-            # جلب التغريدات الخاصة
+            # جلب التغريدات الخاصة باستخدام user_id
             tweets_url = f"https://api.twitter.com/2/users/{user_id}/tweets?max_results=5"
+            headers = {"Authorization": f"Bearer {os.getenv('TWITTER_BEARER_TOKEN', '')}"}
             tweets_response = await self.client.get(tweets_url, headers=headers)
             if tweets_response.status_code != 200:
                 logger.warning(f"فشل جلب التغريدات: {tweets_response.status_code}")
