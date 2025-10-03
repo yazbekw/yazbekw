@@ -424,15 +424,12 @@ class CryptoDataFetcher:
             return self.cache[cache_key]['data']
         
         try:
-            # التحقق من حدود معدل CoinGecko
-            if self.rate_limit_remaining['coingecko'] > 5 and current_time > self.rate_limit_reset['coingecko']:
+            # جعل Binance المصدر الأول
+            data = await self._fetch_from_binance(coin_data['binance_symbol'])
+            if not data.get('prices'):
+                logger.info(f"التبديل إلى CoinGecko لـ {coin_data['symbol']} بسبب فشل Binance",
+                            extra={"coin": coin_data['symbol'], "source": "binance"})
                 data = await self._fetch_from_coingecko(coin_data['coingecko_id'])
-                if not data.get('prices'):
-                    data = await self._fetch_from_binance(coin_data['binance_symbol'])
-            else:
-                logger.warning(f"حد معدل CoinGecko منخفض، التبديل إلى Binance لـ {coin_data['symbol']}",
-                              extra={"coin": coin_data['symbol'], "source": "coingecko"})
-                data = await self._fetch_from_binance(coin_data['binance_symbol'])
             
             if not data.get('prices'):
                 raise ValueError("لا بيانات متاحة من أي مصدر")
@@ -535,34 +532,37 @@ class CryptoDataFetcher:
         return {'prices': [], 'highs': [], 'lows': [], 'volumes': [], 'source': 'binance_failed'}
 
     async def _get_sentiment(self, coin_symbol: str) -> float:
-        """تحليل المشاعر البسيط من X (Twitter) باستخدام user_id يدوي"""
+        """تحليل المشاعر البسيط من X (Twitter) باستخدام user_id يدوي، مع قيمة افتراضية في حال الفشل"""
         try:
-            # استخدام user_id يدوي (استبدل بقيمة حسابك الفعلية)
-            user_id = os.getenv("TWITTER_USER_ID", "1932080103292305408")  # يمكنك تعيينه في متغيرات البيئة
-
-            # جلب التغريدات الخاصة باستخدام user_id
+            user_id = os.getenv("TWITTER_USER_ID", "1932080103292305408")  # user_id يدوي
             tweets_url = f"https://api.twitter.com/2/users/{user_id}/tweets?max_results=5"
             headers = {"Authorization": f"Bearer {os.getenv('TWITTER_BEARER_TOKEN', '')}"}
             tweets_response = await self.client.get(tweets_url, headers=headers)
+
             if tweets_response.status_code != 200:
-                logger.warning(f"فشل جلب التغريدات: {tweets_response.status_code}")
-                return 0.5
+                logger.warning(f"فشل جلب التغريدات: {tweets_response.status_code} - {tweets_response.text}")
+                if tweets_response.status_code == 429:
+                    logger.info("تجاوزت الحد اليومي للطلبات، جرب لاحقًا")
+                return 0.5  # قيمة افتراضية عند فشل الطلب
 
             tweets = tweets_response.json().get('data', [])
             if not tweets:
                 logger.info(f"لا توجد تغريدات لتحليل المشاعر لـ {coin_symbol}")
-                return 0.5
+                return 0.5  # قيمة افتراضية عند عدم وجود تغريدات
 
             # تحليل بسيط لكلمات مفتاحية
             positive_count = sum(1 for tweet in tweets if 'bullish' in tweet['text'].lower() or 'buy' in tweet['text'].lower())
             negative_count = sum(1 for tweet in tweets if 'bearish' in tweet['text'].lower() or 'sell' in tweet['text'].lower())
             total_count = len(tweets)
             sentiment_score = (positive_count - negative_count) / total_count if total_count > 0 else 0.5
-            return max(0.0, min(1.0, sentiment_score + 0.5))  # تحسين بين 0 و1
+            sentiment_score = max(0.0, min(1.0, sentiment_score + 0.5))  # تحسين بين 0 و1
+
+            logger.info(f"تم حساب المشاعر لـ {coin_symbol} بنجاح: {sentiment_score}", extra={"coin": coin_symbol, "source": "twitter"})
+            return sentiment_score
 
         except Exception as e:
-            logger.error(f"خطأ في جلب المشاعر لـ {coin_symbol}: {e}")
-            return 0.5
+            logger.error(f"خطأ غير متوقع في جلب المشاعر لـ {coin_symbol}: {e}")
+            return 0.5  # قيمة افتراضية في حالة أي استثناء
 
     def _update_rate_limits(self, headers, source: str):
         if source == 'coingecko':
@@ -603,7 +603,7 @@ async def market_monitoring_task():
                         extra={"coin": coin_key, "source": data['source']}
                     )
                     
-                    await asyncio.sleep(30)  # زيادة الانتظار إلى 30 ثانية لتجنب إرهاق API
+                    await asyncio.sleep(30)  # زيادة الانتظار لتجنب إرهاق API
                     
                 except Exception as e:
                     logger.error(f"خطأ في تحليل {coin_key}: {e}", extra={"coin": coin_key, "source": "N/A"})
@@ -625,7 +625,7 @@ async def root():
         "version": "8.1.0",
         "features": [
             "تحليل مراحل السوق (وايكوف + إليوت + VSA + إيتشيموكو + تحليل مشاعر)",
-            "مصادر متعددة: CoinGecko وBinance مع معالجة أخطاء متقدمة",
+            "مصادر متعددة: Binance كمصدر أول، CoinGecko كاحتياطي",
             "إشعارات احترافية قوية لدعم القرار",
             "عملات إضافية: ADA, XRP, DOT",
             "إدارة معدل الطلبات وتسجيل محسن"
