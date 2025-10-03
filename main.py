@@ -32,7 +32,7 @@ file_handler.setFormatter(logging.Formatter(
 ))
 logger.addHandler(file_handler)
 
-app = FastAPI(title="Crypto Market Phase Bot", version="8.0.0")
+app = FastAPI(title="Crypto Market Phase Bot", version="8.1.0")
 
 # إعدادات التلغرام والبيئة
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -105,6 +105,7 @@ class MarketPhaseAnalyzer:
             # إضافة VSA (Volume Spread Analysis)
             df['spread'] = df['high'] - df['low']
             df['spread_volume_ratio'] = df['spread'] / df['volume'].replace(0, 1e-10)
+            spread_volume_mean = df['spread_volume_ratio'].mean()  # حساب المتوسط هنا
             
             # إضافة Ichimoku Cloud
             df['tenkan_sen'] = (df['high'].rolling(9).max() + df['low'].rolling(9).min()) / 2
@@ -118,7 +119,7 @@ class MarketPhaseAnalyzer:
             # إضافة Elliott Wave Detection
             elliott_wave = MarketPhaseAnalyzer._detect_elliott_waves(prices)
             
-            phase_analysis = MarketPhaseAnalyzer._determine_phase(latest, prev, df, sentiment_score, elliott_wave)
+            phase_analysis = MarketPhaseAnalyzer._determine_phase(latest, prev, sentiment_score, elliott_wave, spread_volume_mean)
             return phase_analysis
             
         except Exception as e:
@@ -135,7 +136,7 @@ class MarketPhaseAnalyzer:
         return "غير محدد"
     
     @staticmethod
-    def _determine_phase(latest, prev, df, sentiment_score: float, elliott_wave: str) -> Dict[str, Any]:
+    def _determine_phase(latest, prev, sentiment_score: float, elliott_wave: str, spread_volume_mean: float) -> Dict[str, Any]:
         """تحديد المرحلة بناءً على المؤشرات الموسعة بما في ذلك النظريات الجديدة"""
         accumulation_signs = [
             latest['volatility'] < 0.05,
@@ -145,7 +146,7 @@ class MarketPhaseAnalyzer:
             latest['macd_hist'] > 0,
             latest['close'] > latest['bb_lower'],
             latest['atr'] / latest['close'] < 0.03,
-            latest['spread_volume_ratio'] < df['spread_volume_ratio'].mean(),  # VSA
+            latest['spread_volume_ratio'] < spread_volume_mean,  # VSA
             latest['close'] > latest['senkou_span_a'] and latest['close'] > latest['senkou_span_b'],  # Ichimoku
             sentiment_score < 0.5,  # Sentiment منخفض يشير إلى تجميع
             "تصحيحية" in elliott_wave  # Elliott Wave
@@ -159,7 +160,7 @@ class MarketPhaseAnalyzer:
             latest['macd'] > latest['macd_signal'],
             latest['close'] > latest['bb_middle'],
             latest['atr'] / latest['close'] > 0.02,
-            latest['spread_volume_ratio'] > df['spread_volume_ratio'].mean(),  # VSA
+            latest['spread_volume_ratio'] > spread_volume_mean,  # VSA
             latest['tenkan_sen'] > latest['kijun_sen'],  # Ichimoku
             sentiment_score > 0.6,  # Sentiment إيجابي
             "صعودية" in elliott_wave  # Elliott Wave
@@ -173,7 +174,7 @@ class MarketPhaseAnalyzer:
             latest['macd_hist'] < 0,
             latest['close'] < latest['bb_upper'],
             latest['atr'] / latest['close'] > 0.04,
-            latest['spread_volume_ratio'] < df['spread_volume_ratio'].mean(),  # VSA (حجم مرتفع مع spread صغير)
+            latest['spread_volume_ratio'] < spread_volume_mean,  # VSA (حجم مرتفع مع spread صغير)
             latest['close'] < latest['senkou_span_a'] or latest['close'] < latest['senkou_span_b'],  # Ichimoku
             sentiment_score > 0.8,  # Sentiment ذروة إيجابية
             "تصحيحية" in elliott_wave  # Elliott Wave
@@ -187,7 +188,7 @@ class MarketPhaseAnalyzer:
             latest['macd'] < latest['macd_signal'],
             latest['close'] < latest['bb_middle'],
             latest['atr'] / latest['close'] > 0.03,
-            latest['spread_volume_ratio'] > df['spread_volume_ratio'].mean(),  # VSA
+            latest['spread_volume_ratio'] > spread_volume_mean,  # VSA
             latest['tenkan_sen'] < latest['kijun_sen'],  # Ichimoku
             sentiment_score < 0.4,  # Sentiment سلبي
             "تصحيحية" in elliott_wave  # Elliott Wave
@@ -290,7 +291,7 @@ class TelegramNotifier:
         message += f"• التقلب: {indicators['volatility']*100}% (ATR: {indicators['atr_ratio']*100}%)\n"
         message += f"• MACD Histogram: {indicators['macd_hist']} (زخم { 'إيجابي' if indicators['macd_hist'] > 0 else 'سلبي'})\n"
         message += f"• موقع Bollinger: {indicators['bb_position']*100}% (فوق/تحت الوسط)\n"
-        message += f"• نسبة انتشار الحجم (VSA): {indicators['spread_volume_ratio']} (يشير إلى { 'قوة' if indicators['spread_volume_ratio'] > df['spread_volume_ratio'].mean() else 'ضعف'})\n"
+        message += f"• نسبة انتشار الحجم (VSA): {indicators['spread_volume_ratio']} (يشير إلى { 'قوة' if indicators['spread_volume_ratio'] > indicators['spread_volume_mean'] else 'ضعف'})\n"
         message += f"• اتجاه إيتشيموكو: {indicators['ichimoku_trend']} (سحابة { 'داعمة' if indicators['ichimoku_trend'] == 'صاعد' else 'مقاومة'})\n"
         message += f"• تقييم المشاعر: {indicators['sentiment_score']*100}% إيجابي (من X)\n"
         message += f"• موجات إليوت: {indicators['elliott_wave']}\n"
@@ -534,8 +535,9 @@ class CryptoDataFetcher:
         return {'prices': [], 'highs': [], 'lows': [], 'volumes': [], 'source': 'binance_failed'}
 
     async def _get_sentiment(self, coin_symbol: str) -> float:
+        """تحليل المشاعر البسيط من X (Twitter)"""
         try:
-            # جلب معرف المستخدم
+            # جلب معرف المستخدم أولاً
             me_url = "https://api.twitter.com/2/users/me"
             headers = {"Authorization": f"Bearer {os.getenv('TWITTER_BEARER_TOKEN', '')}"}
             me_response = await self.client.get(me_url, headers=headers)
@@ -608,7 +610,7 @@ async def market_monitoring_task():
                         extra={"coin": coin_key, "source": data['source']}
                     )
                     
-                    await asyncio.sleep(20)  # زيادة الانتظار لتجنب إرهاق API
+                    await asyncio.sleep(30)  # زيادة الانتظار إلى 30 ثانية لتجنب إرهاق API
                     
                 except Exception as e:
                     logger.error(f"خطأ في تحليل {coin_key}: {e}", extra={"coin": coin_key, "source": "N/A"})
@@ -627,7 +629,7 @@ async def root():
     return {
         "message": "بوت مراقبة مراحل السوق - إصدار محسن مع نظريات متقدمة",
         "status": "نشط",
-        "version": "8.0.0",
+        "version": "8.1.0",
         "features": [
             "تحليل مراحل السوق (وايكوف + إليوت + VSA + إيتشيموكو + تحليل مشاعر)",
             "مصادر متعددة: CoinGecko وBinance مع معالجة أخطاء متقدمة",
