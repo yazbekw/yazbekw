@@ -257,8 +257,8 @@ class TelegramNotifier:
         self.chat_id = chat_id
         self.base_url = f"https://api.telegram.org/bot{token}"
         self.last_notification_time = {}
-        self.min_notification_interval = 10800  # 3 ساعات لتقليل الإشعارات
-        self.confidence_threshold = float(os.getenv("CONFIDENCE_THRESHOLD", 0.8))  # رفع الحد لإشعارات قوية
+        self.min_notification_interval = 1800  # 3 ساعات لتقليل الإشعارات
+        self.confidence_threshold = float(os.getenv("CONFIDENCE_THRESHOLD", 0.5))  # رفع الحد لإشعارات قوية
 
     async def send_phase_alert(self, coin: str, analysis: Dict[str, Any], price: float, prices: List[float]):
         current_time = time.time()
@@ -609,7 +609,7 @@ async def market_monitoring_task():
                     logger.error(f"خطأ في تحليل {coin_key}: {e}", extra={"coin": coin_key, "source": "N/A"})
                     continue
             
-            await asyncio.sleep(7200)  # 2 ساعة بين الدورات
+            await asyncio.sleep(1800)  # 2 ساعة بين الدورات
             
         except Exception as e:
             logger.error(f"خطأ في مهمة المراقبة: {e}", extra={"coin": "N/A", "source": "system"})
