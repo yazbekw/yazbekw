@@ -258,7 +258,7 @@ class TelegramNotifier:
         self.base_url = f"https://api.telegram.org/bot{token}"
         self.last_notification_time = {}
         self.min_notification_interval = 1800  # 3 ساعات لتقليل الإشعارات
-        self.confidence_threshold = float(os.getenv("CONFIDENCE_THRESHOLD", 0.5))  # رفع الحد لإشعارات قوية
+        self.confidence_threshold = float(os.getenv("CONFIDENCE_THRESHOLD", 0.6))  # تغيير إلى 0.6
 
     async def send_phase_alert(self, coin: str, analysis: Dict[str, Any], price: float, prices: List[float]):
         current_time = time.time()
@@ -285,7 +285,7 @@ class TelegramNotifier:
         message += f"📊 مستوى الثقة: {confidence*100}%\n"
         message += f"⚡ توصية الإجراء: {action}\n\n"
         
-        message += f"🔍 تحليل مفصل (بناءً على وايكوف، إليوت، VSA، إيتشيموكو، والمشاعر):\n"
+        message += f"🔍 تحليل مفصل (بناءً على وايكوف، إليوت، VSA، إيتشيموكو):\n"  # حذف المشاعر من العنوان
         message += f"• RSI: {indicators['rsi']} (زخم { 'إيجابي' if indicators['rsi'] > 50 else 'سلبي'})\n"
         message += f"• نسبة الحجم: {indicators['volume_ratio']}x (نشاط { 'مرتفع' if indicators['volume_ratio'] > 1 else 'منخفض'})\n"
         message += f"• التقلب: {indicators['volatility']*100}% (ATR: {indicators['atr_ratio']*100}%)\n"
@@ -293,8 +293,7 @@ class TelegramNotifier:
         message += f"• موقع Bollinger: {indicators['bb_position']*100}% (فوق/تحت الوسط)\n"
         message += f"• نسبة انتشار الحجم (VSA): {indicators['spread_volume_ratio']} (يشير إلى { 'قوة' if indicators['spread_volume_ratio'] > indicators['spread_volume_mean'] else 'ضعف'})\n"
         message += f"• اتجاه إيتشيموكو: {indicators['ichimoku_trend']} (سحابة { 'داعمة' if indicators['ichimoku_trend'] == 'صاعد' else 'مقاومة'})\n"
-        message += f"• تقييم المشاعر: {indicators['sentiment_score']*100}% إيجابي (من X)\n"
-        message += f"• موجات إليوت: {indicators['elliott_wave']}\n"
+        message += f"• موجات إليوت: {indicators['elliott_wave']}\n"  # حذف المشاعر
         message += f"• الاتجاه العام: {indicators['trend']}\n\n"
         
         message += f"🕒 التوقيت: {datetime.now().strftime('%H:%M %d-%m-%Y')}\n"
@@ -434,8 +433,8 @@ class CryptoDataFetcher:
             if not data.get('prices'):
                 raise ValueError("لا بيانات متاحة من أي مصدر")
             
-            # جلب تحليل المشاعر من X
-            sentiment_score = await self._get_sentiment(coin_data['symbol'])
+            # تعطيل تحليل المشاعر واستخدام قيمة ثابتة
+            sentiment_score = 0.5
             
             phase_analysis = self.phase_analyzer.analyze_market_phase(
                 data['prices'], data['highs'], data['lows'], data['volumes'], sentiment_score
@@ -532,37 +531,9 @@ class CryptoDataFetcher:
         return {'prices': [], 'highs': [], 'lows': [], 'volumes': [], 'source': 'binance_failed'}
 
     async def _get_sentiment(self, coin_symbol: str) -> float:
-        """تحليل المشاعر البسيط من X (Twitter) باستخدام user_id يدوي، مع قيمة افتراضية في حال الفشل"""
-        try:
-            user_id = os.getenv("TWITTER_USER_ID", "1932080103292305408")  # user_id يدوي
-            tweets_url = f"https://api.twitter.com/2/users/{user_id}/tweets?max_results=5"
-            headers = {"Authorization": f"Bearer {os.getenv('TWITTER_BEARER_TOKEN', '')}"}
-            tweets_response = await self.client.get(tweets_url, headers=headers)
-
-            if tweets_response.status_code != 200:
-                logger.warning(f"فشل جلب التغريدات: {tweets_response.status_code} - {tweets_response.text}")
-                if tweets_response.status_code == 429:
-                    logger.info("تجاوزت الحد اليومي للطلبات، جرب لاحقًا")
-                return 0.5  # قيمة افتراضية عند فشل الطلب
-
-            tweets = tweets_response.json().get('data', [])
-            if not tweets:
-                logger.info(f"لا توجد تغريدات لتحليل المشاعر لـ {coin_symbol}")
-                return 0.5  # قيمة افتراضية عند عدم وجود تغريدات
-
-            # تحليل بسيط لكلمات مفتاحية
-            positive_count = sum(1 for tweet in tweets if 'bullish' in tweet['text'].lower() or 'buy' in tweet['text'].lower())
-            negative_count = sum(1 for tweet in tweets if 'bearish' in tweet['text'].lower() or 'sell' in tweet['text'].lower())
-            total_count = len(tweets)
-            sentiment_score = (positive_count - negative_count) / total_count if total_count > 0 else 0.5
-            sentiment_score = max(0.0, min(1.0, sentiment_score + 0.5))  # تحسين بين 0 و1
-
-            logger.info(f"تم حساب المشاعر لـ {coin_symbol} بنجاح: {sentiment_score}", extra={"coin": coin_symbol, "source": "twitter"})
-            return sentiment_score
-
-        except Exception as e:
-            logger.error(f"خطأ غير متوقع في جلب المشاعر لـ {coin_symbol}: {e}")
-            return 0.5  # قيمة افتراضية في حالة أي استثناء
+        """دالة المشاعر معطلة بشكل كامل، تعيد قيمة ثابتة"""
+        logger.info(f"تحليل المشاعر معطل بشكل كامل لـ {coin_symbol}, يتم استخدام قيمة افتراضية 0.5")
+        return 0.5  # قيمة ثابتة دون محاولة الاتصال بـ Twitter
 
     def _update_rate_limits(self, headers, source: str):
         if source == 'coingecko':
@@ -595,7 +566,7 @@ async def market_monitoring_task():
                     current_price = data['price']
                     prices = data['prices']
                     
-                    if phase_analysis['confidence'] > 0.8:
+                    if phase_analysis['confidence'] > 0.8:  # لاحظ أن هذا لن يؤثر إلا إذا تجاوزت الثقة 0.8
                         await notifier.send_phase_alert(coin_key, phase_analysis, current_price, prices)
                     
                     logger.info(
@@ -624,7 +595,7 @@ async def root():
         "status": "نشط",
         "version": "8.1.0",
         "features": [
-            "تحليل مراحل السوق (وايكوف + إليوت + VSA + إيتشيموكو + تحليل مشاعر)",
+            "تحليل مراحل السوق (وايكوف + إليوت + VSA + إيتشيموكو)",  # حذف المشاعر من الميزات
             "مصادر متعددة: Binance كمصدر أول، CoinGecko كاحتياطي",
             "إشعارات احترافية قوية لدعم القرار",
             "عملات إضافية: ADA, XRP, DOT",
