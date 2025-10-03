@@ -580,7 +580,7 @@ async def market_monitoring_task():
                     continue
             
             # تغيير الانتظار بين دورات المراقبة إلى 30 دقيقة (1800 ثانية)
-            await asyncio.sleep(900)
+            await asyncio.sleep(600)
             
         except Exception as e:
             logger.error(f"خطأ في مهمة المراقبة: {e}", extra={"coin": "N/A", "source": "system"})
