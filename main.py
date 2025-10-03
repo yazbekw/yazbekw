@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 from io import BytesIO
 import base64
 from logging.handlers import RotatingFileHandler
+from scipy.signal import find_peaks
 
 # إعداد التسجيل (Structured Logging + File Rotation)
 logger = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ file_handler.setFormatter(logging.Formatter(
 ))
 logger.addHandler(file_handler)
 
-app = FastAPI(title="Crypto Market Phase Bot", version="7.1.0")
+app = FastAPI(title="Crypto Market Phase Bot", version="8.0.0")
 
 # إعدادات التلغرام والبيئة
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -50,11 +51,11 @@ SUPPORTED_COINS = {
 }
 
 class MarketPhaseAnalyzer:
-    """محلل مراحل السوق بناءً على نظرية وايكوف مع مؤشرات إضافية"""
+    """محلل مراحل السوق بناءً على نظرية وايكوف مع نظريات إضافية"""
     
     @staticmethod
-    def analyze_market_phase(prices: List[float], highs: List[float], lows: List[float], volumes: List[float]) -> Dict[str, Any]:
-        """تحليل مرحلة السوق الحالية"""
+    def analyze_market_phase(prices: List[float], highs: List[float], lows: List[float], volumes: List[float], sentiment_score: float) -> Dict[str, Any]:
+        """تحليل مرحلة السوق الحالية مع دمج نظريات إضافية"""
         if len(prices) < 50:
             return {"phase": "غير محدد", "confidence": 0, "action": "انتظار"}
         
@@ -101,10 +102,23 @@ class MarketPhaseAnalyzer:
             ], axis=1).max(axis=1)
             df['atr'] = df['tr'].rolling(14).mean()
             
+            # إضافة VSA (Volume Spread Analysis)
+            df['spread'] = df['high'] - df['low']
+            df['spread_volume_ratio'] = df['spread'] / df['volume'].replace(0, 1e-10)
+            
+            # إضافة Ichimoku Cloud
+            df['tenkan_sen'] = (df['high'].rolling(9).max() + df['low'].rolling(9).min()) / 2
+            df['kijun_sen'] = (df['high'].rolling(26).max() + df['low'].rolling(26).min()) / 2
+            df['senkou_span_a'] = ((df['tenkan_sen'] + df['kijun_sen']) / 2).shift(26)
+            df['senkou_span_b'] = ((df['high'].rolling(52).max() + df['low'].rolling(52).min()) / 2).shift(26)
+            
             latest = df.iloc[-1]
             prev = df.iloc[-10] if len(df) > 10 else df.iloc[0]
             
-            phase_analysis = MarketPhaseAnalyzer._determine_phase(latest, prev, df)
+            # إضافة Elliott Wave Detection
+            elliott_wave = MarketPhaseAnalyzer._detect_elliott_waves(prices)
+            
+            phase_analysis = MarketPhaseAnalyzer._determine_phase(latest, prev, df, sentiment_score, elliott_wave)
             return phase_analysis
             
         except Exception as e:
@@ -112,8 +126,17 @@ class MarketPhaseAnalyzer:
             return {"phase": "خطأ", "confidence": 0, "action": "انتظار"}
     
     @staticmethod
-    def _determine_phase(latest, prev, df) -> Dict[str, Any]:
-        """تحديد المرحلة بناءً على المؤشرات الموسعة"""
+    def _detect_elliott_waves(prices: List[float]) -> str:
+        """كشف موجات إليوت البسيط"""
+        peaks, _ = find_peaks(prices, distance=10)
+        troughs, _ = find_peaks([-p for p in prices], distance=10)
+        if len(peaks) >= 3 and len(troughs) >= 2:
+            return "موجة صعودية محتملة" if prices[-1] > prices[peaks[-1]] else "موجة تصحيحية محتملة"
+        return "غير محدد"
+    
+    @staticmethod
+    def _determine_phase(latest, prev, df, sentiment_score: float, elliott_wave: str) -> Dict[str, Any]:
+        """تحديد المرحلة بناءً على المؤشرات الموسعة بما في ذلك النظريات الجديدة"""
         accumulation_signs = [
             latest['volatility'] < 0.05,
             latest['volume_ratio'] < 1.2,
@@ -121,7 +144,11 @@ class MarketPhaseAnalyzer:
             abs(latest['close'] - latest['sma20']) / latest['sma20'] < 0.05,
             latest['macd_hist'] > 0,
             latest['close'] > latest['bb_lower'],
-            latest['atr'] / latest['close'] < 0.03  # تقلبات ATR منخفضة
+            latest['atr'] / latest['close'] < 0.03,
+            latest['spread_volume_ratio'] < df['spread_volume_ratio'].mean(),  # VSA
+            latest['close'] > latest['senkou_span_a'] and latest['close'] > latest['senkou_span_b'],  # Ichimoku
+            sentiment_score < 0.5,  # Sentiment منخفض يشير إلى تجميع
+            "تصحيحية" in elliott_wave  # Elliott Wave
         ]
         
         markup_signs = [
@@ -131,7 +158,11 @@ class MarketPhaseAnalyzer:
             latest['close'] > prev['close'],
             latest['macd'] > latest['macd_signal'],
             latest['close'] > latest['bb_middle'],
-            latest['atr'] / latest['close'] > 0.02
+            latest['atr'] / latest['close'] > 0.02,
+            latest['spread_volume_ratio'] > df['spread_volume_ratio'].mean(),  # VSA
+            latest['tenkan_sen'] > latest['kijun_sen'],  # Ichimoku
+            sentiment_score > 0.6,  # Sentiment إيجابي
+            "صعودية" in elliott_wave  # Elliott Wave
         ]
         
         distribution_signs = [
@@ -141,7 +172,11 @@ class MarketPhaseAnalyzer:
             abs(latest['close'] - latest['sma20']) / latest['sma20'] > 0.1,
             latest['macd_hist'] < 0,
             latest['close'] < latest['bb_upper'],
-            latest['atr'] / latest['close'] > 0.04
+            latest['atr'] / latest['close'] > 0.04,
+            latest['spread_volume_ratio'] < df['spread_volume_ratio'].mean(),  # VSA (حجم مرتفع مع spread صغير)
+            latest['close'] < latest['senkou_span_a'] or latest['close'] < latest['senkou_span_b'],  # Ichimoku
+            sentiment_score > 0.8,  # Sentiment ذروة إيجابية
+            "تصحيحية" in elliott_wave  # Elliott Wave
         ]
         
         markdown_signs = [
@@ -151,7 +186,11 @@ class MarketPhaseAnalyzer:
             latest['close'] < prev['close'],
             latest['macd'] < latest['macd_signal'],
             latest['close'] < latest['bb_middle'],
-            latest['atr'] / latest['close'] > 0.03
+            latest['atr'] / latest['close'] > 0.03,
+            latest['spread_volume_ratio'] > df['spread_volume_ratio'].mean(),  # VSA
+            latest['tenkan_sen'] < latest['kijun_sen'],  # Ichimoku
+            sentiment_score < 0.4,  # Sentiment سلبي
+            "تصحيحية" in elliott_wave  # Elliott Wave
         ]
         
         scores = {
@@ -162,7 +201,7 @@ class MarketPhaseAnalyzer:
         }
         
         best_phase = max(scores, key=scores.get)
-        confidence = scores[best_phase] / 7.0  # معدلة لـ 7 مؤشرات
+        confidence = scores[best_phase] / 11.0  # معدلة لـ 11 علامة (مع النظريات الجديدة)
         
         action = MarketPhaseAnalyzer._get_action_recommendation(best_phase, confidence, latest)
         
@@ -178,33 +217,39 @@ class MarketPhaseAnalyzer:
                 "macd_hist": round(latest['macd_hist'], 3),
                 "bb_position": round((latest['close'] - latest['bb_lower']) / (latest['bb_upper'] - latest['bb_lower']), 2),
                 "atr_ratio": round(latest['atr'] / latest['close'], 3),
+                "spread_volume_ratio": round(latest['spread_volume_ratio'], 3),
+                "ichimoku_trend": "صاعد" if latest['close'] > latest['senkou_span_a'] else "هابط",
+                "sentiment_score": round(sentiment_score, 2),
+                "elliott_wave": elliott_wave,
                 "trend": "صاعد" if latest['sma20'] > latest['sma50'] else "هابط"
             }
         }
     
     @staticmethod
     def _get_action_recommendation(phase: str, confidence: float, latest) -> str:
+        """تحديد الإجراء المناسب للمرحلة مع دعم قرار احترافي"""
         actions = {
-            "تجميع": "مراقبة للشراء عند الكسر",
-            "صعود": "شراء على الارتدادات",
-            "توزيع": "استعداد للبيع",
-            "هبوط": "بيع على الارتدادات"
+            "تجميع": "مراقبة للشراء عند الكسر. دعم محتمل عند مستوى ATR السفلي.",
+            "صعود": "شراء على الارتدادات. هدف محتمل عند مستوى Ichimoku العلوي.",
+            "توزيع": "استعداد للبيع. مقاومة محتملة عند BB العلوي.",
+            "هبوط": "بيع على الارتدادات. هدف محتمل عند مستوى ATR السفلي."
         }
-        base_action = actions.get(phase, "انتظار")
+        base_action = actions.get(phase, "انتظار بسبب عدم وضوح الإشارات.")
         
-        if confidence > 0.75:  # زيادة الحد الأدنى للثقة
+        if confidence > 0.8:
             if phase == "تجميع":
-                return "استعداد للشراء - مرحلة تجميع قوية"
+                return f"استعداد للشراء - مرحلة تجميع قوية. دعم القرار: {base_action} (ثقة عالية بناءً على VSA وElliott Waves)."
             elif phase == "صعود":
-                return "شراء - اتجاه صاعد قوي"
+                return f"شراء - اتجاه صاعد قوي. دعم القرار: {base_action} (مدعوم بـ Ichimoku وSentiment إيجابي)."
             elif phase == "توزيع":
-                return "بيع - مرحلة توزيع نشطة"
+                return f"بيع - مرحلة توزيع نشطة. دعم القرار: {base_action} (تحذير من ذروة المشاعر)."
             elif phase == "هبوط":
-                return "بيع - اتجاه هابط قوي"
+                return f"بيع - اتجاه هابط قوي. دعم القرار: {base_action} (مدعوم بـ VSA وموجات تصحيحية)."
+        
         return base_action
 
 class TelegramNotifier:
-    """إشعارات تلغرام محسنة مع إعادة المحاولة"""
+    """إشعارات تلغرام محسنة مع إشعارات احترافية قوية"""
     
     def __init__(self, token: str, chat_id: str):
         self.token = token
@@ -212,7 +257,7 @@ class TelegramNotifier:
         self.base_url = f"https://api.telegram.org/bot{token}"
         self.last_notification_time = {}
         self.min_notification_interval = 10800  # 3 ساعات لتقليل الإشعارات
-        self.confidence_threshold = float(os.getenv("CONFIDENCE_THRESHOLD", 0.75))
+        self.confidence_threshold = float(os.getenv("CONFIDENCE_THRESHOLD", 0.8))  # رفع الحد لإشعارات قوية
 
     async def send_phase_alert(self, coin: str, analysis: Dict[str, Any], price: float, prices: List[float]):
         current_time = time.time()
@@ -233,20 +278,26 @@ class TelegramNotifier:
         action = analysis["action"]
         indicators = analysis["indicators"]
         
-        message = f"🎯 **{coin.upper()} - مرحلة {phase}**\n"
-        message += f"💰 السعر: ${price:,.2f}\n"
-        message += f"📊 الثقة: {confidence*100}%\n"
-        message += f"⚡ الإجراء: {action}\n\n"
-        message += f"📈 المؤشرات:\n"
-        message += f"• RSI: {indicators['rsi']}\n"
-        message += f"• الحجم: {indicators['volume_ratio']}x\n"
-        message += f"• التقلب: {indicators['volatility']*100}%\n"
-        message += f"• MACD Hist: {indicators['macd_hist']}\n"
-        message += f"• BB Position: {indicators['bb_position']*100}%\n"
-        message += f"• ATR Ratio: {indicators['atr_ratio']*100}%\n"
-        message += f"• الاتجاه: {indicators['trend']}\n\n"
-        message += f"🕒 {datetime.now().strftime('%H:%M')}\n"
-        message += "⚠️ مراقبة فقط - ليس نصيحة استثمارية"
+        # إنشاء رسالة احترافية قوية مع دعم قرار
+        message = f"🎯 **{coin.upper()} - مرحلة {phase} (ثقة عالية)**\n"
+        message += f"💰 السعر الحالي: ${price:,.2f}\n"
+        message += f"📊 مستوى الثقة: {confidence*100}%\n"
+        message += f"⚡ توصية الإجراء: {action}\n\n"
+        
+        message += f"🔍 تحليل مفصل (بناءً على وايكوف، إليوت، VSA، إيتشيموكو، والمشاعر):\n"
+        message += f"• RSI: {indicators['rsi']} (زخم { 'إيجابي' if indicators['rsi'] > 50 else 'سلبي'})\n"
+        message += f"• نسبة الحجم: {indicators['volume_ratio']}x (نشاط { 'مرتفع' if indicators['volume_ratio'] > 1 else 'منخفض'})\n"
+        message += f"• التقلب: {indicators['volatility']*100}% (ATR: {indicators['atr_ratio']*100}%)\n"
+        message += f"• MACD Histogram: {indicators['macd_hist']} (زخم { 'إيجابي' if indicators['macd_hist'] > 0 else 'سلبي'})\n"
+        message += f"• موقع Bollinger: {indicators['bb_position']*100}% (فوق/تحت الوسط)\n"
+        message += f"• نسبة انتشار الحجم (VSA): {indicators['spread_volume_ratio']} (يشير إلى { 'قوة' if indicators['spread_volume_ratio'] > df['spread_volume_ratio'].mean() else 'ضعف'})\n"
+        message += f"• اتجاه إيتشيموكو: {indicators['ichimoku_trend']} (سحابة { 'داعمة' if indicators['ichimoku_trend'] == 'صاعد' else 'مقاومة'})\n"
+        message += f"• تقييم المشاعر: {indicators['sentiment_score']*100}% إيجابي (من X)\n"
+        message += f"• موجات إليوت: {indicators['elliott_wave']}\n"
+        message += f"• الاتجاه العام: {indicators['trend']}\n\n"
+        
+        message += f"🕒 التوقيت: {datetime.now().strftime('%H:%M %d-%m-%Y')}\n"
+        message += f"⚠️ هذا تحليل احترافي لدعم القرار - ليس نصيحة استثمارية. قم ببحثك الخاص."
         
         chart_base64 = self._generate_price_chart(prices, coin)
         
@@ -254,7 +305,7 @@ class TelegramNotifier:
             success = await self._send_photo_with_caption(message, chart_base64)
             if success:
                 self.last_notification_time[coin_key] = current_time
-                logger.info(f"تم إرسال إشعار لـ {coin}", extra={"coin": coin, "source": "telegram"})
+                logger.info(f"تم إرسال إشعار احترافي لـ {coin}", extra={"coin": coin, "source": "telegram"})
                 return True
             await asyncio.sleep(2 ** attempt)  # Exponential backoff
         logger.error(f"فشل إرسال إشعار لـ {coin} بعد 3 محاولات", extra={"coin": coin, "source": "telegram"})
@@ -263,7 +314,7 @@ class TelegramNotifier:
     def _generate_price_chart(self, prices: List[float], coin: str) -> str:
         plt.figure(figsize=(8, 4))
         plt.plot(prices, label=f"{coin.upper()} Price", color='blue')
-        plt.title(f"{coin.upper()} Price Trend (Last 100 Points)")
+        plt.title(f"{coin.upper()} Price Trend (Last 100 Points) - تحليل احترافي")
         plt.xlabel("Time")
         plt.ylabel("Price (USD)")
         plt.legend()
@@ -353,7 +404,7 @@ class TelegramNotifier:
             return False
 
 class CryptoDataFetcher:
-    """جلب بيانات العملات من مصادر متعددة مع إدارة معدل الطلبات"""
+    """جلب بيانات العملات من مصادر متعددة مع إدارة معدل الطلبات المحسنة"""
     
     def __init__(self):
         self.client = httpx.AsyncClient(timeout=30.0)
@@ -375,16 +426,21 @@ class CryptoDataFetcher:
             # التحقق من حدود معدل CoinGecko
             if self.rate_limit_remaining['coingecko'] > 5 and current_time > self.rate_limit_reset['coingecko']:
                 data = await self._fetch_from_coingecko(coin_data['coingecko_id'])
+                if not data.get('prices'):
+                    data = await self._fetch_from_binance(coin_data['binance_symbol'])
             else:
                 logger.warning(f"حد معدل CoinGecko منخفض، التبديل إلى Binance لـ {coin_data['symbol']}",
                               extra={"coin": coin_data['symbol'], "source": "coingecko"})
                 data = await self._fetch_from_binance(coin_data['binance_symbol'])
             
             if not data.get('prices'):
-                raise ValueError("لا بيانات متاحة")
+                raise ValueError("لا بيانات متاحة من أي مصدر")
+            
+            # جلب تحليل المشاعر من X
+            sentiment_score = await self._get_sentiment(coin_data['symbol'])
             
             phase_analysis = self.phase_analyzer.analyze_market_phase(
-                data['prices'], data['highs'], data['lows'], data['volumes']
+                data['prices'], data['highs'], data['lows'], data['volumes'], sentiment_score
             )
             
             result = {
@@ -401,6 +457,12 @@ class CryptoDataFetcher:
             return result
                 
         except Exception as e:
+            await notifier.send_simple_analysis(
+                coin_data['symbol'],
+                0,
+                "غير محدد",
+                f"فشل جلب البيانات: {str(e)}. جرب لاحقاً أو تحقق من الاتصال."
+            )
             logger.error(f"فشل جلب البيانات لـ {coin_data['symbol']}: {e}",
                          extra={"coin": coin_data['symbol'], "source": "N/A"})
             return {
@@ -421,20 +483,23 @@ class CryptoDataFetcher:
                     self._update_rate_limits(response.headers, 'coingecko')
                     return {
                         'prices': [item[1] for item in data.get('prices', [])],
-                        'highs': [item[1] for item in data.get('prices', [])],  # CoinGecko لا يوفر highs/lows، استخدام السعر كبديل
+                        'highs': [item[1] for item in data.get('prices', [])],  # تقريبي
                         'lows': [item[1] for item in data.get('prices', [])],
                         'volumes': [item[1] for item in data.get('total_volumes', [])],
                         'source': 'coingecko'
                     }
                 elif response.status_code == 429:
+                    retry_after = int(response.headers.get('Retry-After', 2 ** attempt))
                     self._update_rate_limits(response.headers, 'coingecko')
-                    logger.warning(f"حد معدل CoinGecko: محاولة {attempt + 1}", extra={"coin": coin_id, "source": "coingecko"})
-                    await asyncio.sleep(2 ** attempt)
+                    logger.warning(f"حد معدل CoinGecko لـ {coin_id}: محاولة {attempt + 1}, الانتظار {retry_after} ثانية",
+                                   extra={"coin": coin_id, "source": "coingecko"})
+                    await asyncio.sleep(retry_after)
                 else:
-                    logger.error(f"فشل CoinGecko: {response.status_code}", extra={"coin": coin_id, "source": "coingecko"})
+                    logger.error(f"فشل CoinGecko لـ {coin_id}: {response.status_code} - {response.text}",
+                                  extra={"coin": coin_id, "source": "coingecko"})
                     break
             except Exception as e:
-                logger.error(f"خطأ في CoinGecko: {e}", extra={"coin": coin_id, "source": "coingecko"})
+                logger.error(f"خطأ في CoinGecko لـ {coin_id}: {e}", extra={"coin": coin_id, "source": "coingecko"})
                 break
         return {'prices': [], 'highs': [], 'lows': [], 'volumes': [], 'source': 'coingecko_failed'}
 
@@ -447,23 +512,42 @@ class CryptoDataFetcher:
                     data = response.json()
                     self._update_rate_limits(response.headers, 'binance')
                     return {
-                        'prices': [float(item[4]) for item in data],  # Close price
-                        'highs': [float(item[2]) for item in data],   # High price
-                        'lows': [float(item[3]) for item in data],    # Low price
-                        'volumes': [float(item[5]) for item in data], # Volume
+                        'prices': [float(item[4]) for item in data],
+                        'highs': [float(item[2]) for item in data],
+                        'lows': [float(item[3]) for item in data],
+                        'volumes': [float(item[5]) for item in data],
                         'source': 'binance'
                     }
                 elif response.status_code == 429:
+                    retry_after = int(response.headers.get('Retry-After', 2 ** attempt))
                     self._update_rate_limits(response.headers, 'binance')
-                    logger.warning(f"حد معدل Binance: محاولة {attempt + 1}", extra={"coin": symbol, "source": "binance"})
-                    await asyncio.sleep(2 ** attempt)
+                    logger.warning(f"حد معدل Binance لـ {symbol}: محاولة {attempt + 1}, الانتظار {retry_after} ثانية",
+                                   extra={"coin": symbol, "source": "binance"})
+                    await asyncio.sleep(retry_after)
                 else:
-                    logger.error(f"فشل Binance: {response.status_code}", extra={"coin": symbol, "source": "binance"})
+                    logger.error(f"فشل Binance لـ {symbol}: {response.status_code} - {response.text}",
+                                  extra={"coin": symbol, "source": "binance"})
                     break
             except Exception as e:
-                logger.error(f"خطأ في Binance: {e}", extra={"coin": symbol, "source": "binance"})
+                logger.error(f"خطأ في Binance لـ {symbol}: {e}", extra={"coin": symbol, "source": "binance"})
                 break
         return {'prices': [], 'highs': [], 'lows': [], 'volumes': [], 'source': 'binance_failed'}
+
+    async def _get_sentiment(self, coin_symbol: str) -> float:
+        """تحليل المشاعر البسيط من X (Twitter)"""
+        try:
+            url = f"https://api.twitter.com/2/search/recent?query={coin_symbol} crypto&max_results=50"
+            headers = {"Authorization": f"Bearer {os.getenv('TWITTER_BEARER_TOKEN', '')}"}
+            response = await self.client.get(url, headers=headers)
+            if response.status_code == 200:
+                tweets = response.json().get('data', [])
+                positive_count = sum(1 for tweet in tweets if 'bullish' in tweet['text'].lower() or 'buy' in tweet['text'].lower())
+                return positive_count / len(tweets) if tweets else 0.5
+            logger.warning(f"فشل جلب المشاعر لـ {coin_symbol}: {response.status_code}")
+            return 0.5
+        except Exception as e:
+            logger.error(f"خطأ في جلب المشاعر لـ {coin_symbol}: {e}")
+            return 0.5
 
     def _update_rate_limits(self, headers, source: str):
         if source == 'coingecko':
@@ -496,7 +580,7 @@ async def market_monitoring_task():
                     current_price = data['price']
                     prices = data['prices']
                     
-                    if phase_analysis['confidence'] > 0.75:
+                    if phase_analysis['confidence'] > 0.8:
                         await notifier.send_phase_alert(coin_key, phase_analysis, current_price, prices)
                     
                     logger.info(
@@ -504,7 +588,7 @@ async def market_monitoring_task():
                         extra={"coin": coin_key, "source": data['source']}
                     )
                     
-                    await asyncio.sleep(15)  # زيادة الانتظار لتجنب إرهاق API
+                    await asyncio.sleep(20)  # زيادة الانتظار لتجنب إرهاق API
                     
                 except Exception as e:
                     logger.error(f"خطأ في تحليل {coin_key}: {e}", extra={"coin": coin_key, "source": "N/A"})
@@ -517,17 +601,17 @@ async def market_monitoring_task():
             await asyncio.sleep(60)
 
 # Endpoints
+@app.head("/")
 @app.get("/")
 async def root():
     return {
-        "message": "بوت مراقبة مراحل السوق",
+        "message": "بوت مراقبة مراحل السوق - إصدار محسن مع نظريات متقدمة",
         "status": "نشط",
-        "version": "7.1.0",
+        "version": "8.0.0",
         "features": [
-            "تحليل مراحل السوق (تجميع، صعود، توزيع، هبوط)",
-            "مصادر متعددة: CoinGecko وBinance",
-            "مؤشرات إضافية: MACD, Bollinger Bands, ATR",
-            "إشعارات تلغرام مع رسوم بيانية وإعادة محاولة",
+            "تحليل مراحل السوق (وايكوف + إليوت + VSA + إيتشيموكو + تحليل مشاعر)",
+            "مصادر متعددة: CoinGecko وBinance مع معالجة أخطاء متقدمة",
+            "إشعارات احترافية قوية لدعم القرار",
             "عملات إضافية: ADA, XRP, DOT",
             "إدارة معدل الطلبات وتسجيل محسن"
         ]
