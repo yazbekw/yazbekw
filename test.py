@@ -465,13 +465,23 @@ async def run_backtest(coin: str):
         f"⚠️ ليس نصيحة استثمارية."
     )
     
-    # إرسال التقرير إلى Telegram
-    success = await notifier.send_simple_analysis(
-        coin=coin,
-        price=data['price'],
-        phase="اختبار رجعي",
-        signal=report
-    )
+    # إرسال التقرير إلى Telegram باستخدام دالة مباشرة
+    async with httpx.AsyncClient() as client:
+        payload = {
+            'chat_id': TELEGRAM_CHAT_ID,
+            'text': report,
+            'parse_mode': 'HTML'
+        }
+        try:
+            response = await client.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", json=payload, timeout=15.0)
+            success = response.status_code == 200
+            if success:
+                logger.info(f"تم إرسال تقرير الاختبار الرجعي لـ {coin}", extra={"coin": coin, "source": "telegram"})
+            else:
+                logger.error(f"فشل إرسال تقرير الاختبار الرجعي لـ {coin}: {response.text}", extra={"coin": coin, "source": "telegram"})
+        except Exception as e:
+            logger.error(f"خطأ أثناء إرسال تقرير الاختبار الرجعي لـ {coin}: {str(e)}", extra={"coin": coin, "source": "telegram"})
+            success = False
     
     return {
         "coin": coin,
