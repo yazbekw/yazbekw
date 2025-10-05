@@ -454,13 +454,32 @@ async def run_backtest(coin: str):
         volumes=data['volumes'],
         coin_data=coin_data
     )
+    
+    # إعداد تقرير الاختبار الرجعي
+    report = (
+        f"📊 **تقرير الاختبار الرجعي لـ {coin.upper()}**\n"
+        f"📈 معدل الفوز: {result['win_rate']*100}%\n"
+        f"💰 العائد الكلي: {result['total_return']*100}%\n"
+        f"🔄 عدد الصفقات: {result['number_of_trades']}\n"
+        f"🕒 {datetime.now().strftime('%H:%M %d-%m-%Y')}\n"
+        f"⚠️ ليس نصيحة استثمارية."
+    )
+    
+    # إرسال التقرير إلى Telegram
+    success = await notifier.send_simple_analysis(
+        coin=coin,
+        price=data['price'],
+        phase="اختبار رجعي",
+        signal=report
+    )
+    
     return {
         "coin": coin,
         "win_rate": result['win_rate'],
         "total_return": result['total_return'],
-        "number_of_trades": result['number_of_trades']
+        "number_of_trades": result['number_of_trades'],
+        "telegram_sent": success
     }
-
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(market_monitoring_task())
