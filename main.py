@@ -40,15 +40,14 @@ logger.propagate = False
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("asyncio").setLevel(logging.WARNING)
 
-app = FastAPI(title="Crypto Market Phase Bot", version="9.1.0")
+app = FastAPI(title="Crypto Market Phase Bot", version="9.2.0")
 
-# ⭐ تحديث عتبة الثقة - تخفيض إلى 65%
+# ⭐ عتبة ثقة واقعية
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 CACHE_TTL = int(os.getenv("CACHE_TTL", 900))
-CONFIDENCE_THRESHOLD = 0.65  # ⭐ تخفيض من 85% إلى 65%
+CONFIDENCE_THRESHOLD = 0.65  # 65% عتبة واقعية
 
-# تعريف العملات مع تخصيص المؤشرات
 SUPPORTED_COINS = {
     'btc': {'name': 'Bitcoin', 'coingecko_id': 'bitcoin', 'binance_symbol': 'BTCUSDT', 'symbol': 'BTC',
             'volatility_threshold': 0.04, 'rsi_low': 55, 'rsi_high': 65},
@@ -79,20 +78,20 @@ def safe_log_error(message: str, coin: str = "system", source: str = "app"):
         print(f"خطأ في تسجيل الخطأ: {e} - الرسالة: {message}")
 
 class MarketPhaseAnalyzer:
-    """محلل مراحل السوق مع تحسين نظام النقاط"""
+    """محلل مراحل السوق مع أوزان واقعية"""
     
-    # ⭐ تحديث الأوزان لزيادة النقاط
+    # ⭐ أوزان واقعية ومتوازنة
     INDICATOR_WEIGHTS = {
-        'price_trend': 2.5,      # زيادة الوزن
-        'volume_trend': 2.0,     # زيادة الوزن
-        'rsi_signal': 2.0,       # زيادة الوزن
-        'macd_signal': 1.8,      # زيادة الوزن
-        'volatility': 1.5,       # زيادة الوزن
-        'bb_signal': 1.5,        # زيادة الوزن
-        'support_resistance': 2.2, # زيادة الوزن
-        'market_structure': 1.8,   # زيادة الوزن
-        'momentum': 1.6,         # زيادة الوزن
-        'sentiment': 1.3         # زيادة الوزن
+        'price_trend': 1.8,      # اتجاه السعر (مهم)
+        'volume_trend': 1.5,     # اتجاه الحجم
+        'rsi_signal': 1.6,       # إشارة RSI
+        'macd_signal': 1.4,      # إشارة MACD
+        'volatility': 1.2,       # التقلبات
+        'bb_signal': 1.3,        # إشارة بولينجر
+        'support_resistance': 1.7, # مستويات الدعم والمقاومة
+        'market_structure': 1.4,   # هيكل السوق
+        'momentum': 1.3,         # الزخم
+        'sentiment': 1.1         # المشاعر
     }
     
     @staticmethod
@@ -120,7 +119,6 @@ class MarketPhaseAnalyzer:
             
             # الحجم النسبي
             df['volume_ratio'] = df['volume'] / df['volume'].rolling(20).mean()
-            df['volume_trend'] = df['volume_ratio'].rolling(5).mean()
             
             # تقلبات السعر
             df['volatility'] = df['close'].rolling(20).std() / df['close'].rolling(20).mean()
@@ -152,8 +150,8 @@ class MarketPhaseAnalyzer:
             prev_5 = df.iloc[-5] if len(df) > 5 else df.iloc[0]
             prev_10 = df.iloc[-10] if len(df) > 10 else df.iloc[0]
             
-            # تحليل المرحلة مع الأوزان المحسنة
-            phase_analysis = MarketPhaseAnalyzer._improved_weighted_analysis(
+            # تحليل المرحلة مع الأوزان الواقعية
+            phase_analysis = MarketPhaseAnalyzer._realistic_weighted_analysis(
                 latest, prev_5, prev_10, sentiment_score, support, resistance, coin_custom
             )
             
@@ -165,11 +163,10 @@ class MarketPhaseAnalyzer:
     
     @staticmethod
     def _calculate_support_resistance(highs: List[float], lows: List[float], current_price: float) -> Tuple[float, float]:
-        """حساب مستويات الدعم والمقاومة المحسنة"""
+        """حساب مستويات الدعم والمقاومة"""
         try:
-            # استخدام القمم والقيعان الحديثة
-            recent_highs = highs[-30:]
-            recent_lows = lows[-30:]
+            recent_highs = highs[-20:]
+            recent_lows = lows[-20:]
             
             resistance = max(recent_highs) if recent_highs else current_price * 1.08
             support = min(recent_lows) if recent_lows else current_price * 0.92
@@ -179,8 +176,8 @@ class MarketPhaseAnalyzer:
             return current_price * 0.92, current_price * 1.08
     
     @staticmethod
-    def _improved_weighted_analysis(latest, prev_5, prev_10, sentiment_score: float, support: float, resistance: float, coin_custom: Dict) -> Dict[str, Any]:
-        """تحليل مرجح محسن مع زيادة النقاط"""
+    def _realistic_weighted_analysis(latest, prev_5, prev_10, sentiment_score: float, support: float, resistance: float, coin_custom: Dict) -> Dict[str, Any]:
+        """تحليل مرجح واقعي"""
         
         vol_thresh = coin_custom.get('volatility_threshold', 0.05)
         rsi_low = coin_custom.get('rsi_low', 60)
@@ -189,54 +186,54 @@ class MarketPhaseAnalyzer:
         price_change_5 = (current_price - prev_5['close']) / prev_5['close']
         price_change_10 = (current_price - prev_10['close']) / prev_10['close']
         
-        # 🟢 إشارات الصعود المحسنة
+        # 🟢 إشارات الصعود الواقعية
         markup_signals = [
-            (latest['close'] > latest['sma20'] > latest['sma50'], MarketPhaseAnalyzer.INDICATOR_WEIGHTS['price_trend']),
-            (latest['volume_ratio'] > 1.1 and latest['close'] > prev_5['close'], MarketPhaseAnalyzer.INDICATOR_WEIGHTS['volume_trend']),
-            (latest['rsi'] > 45 and latest['rsi'] < rsi_high, MarketPhaseAnalyzer.INDICATOR_WEIGHTS['rsi_signal']),
-            (latest['macd'] > latest['macd_signal'], MarketPhaseAnalyzer.INDICATOR_WEIGHTS['macd_signal']),
-            (latest['bb_position'] > 0.3 and latest['bb_position'] < 0.7, MarketPhaseAnalyzer.INDICATOR_WEIGHTS['bb_signal']),
-            (current_price > support * 1.02, MarketPhaseAnalyzer.INDICATOR_WEIGHTS['support_resistance']),
-            (price_change_5 > 0, MarketPhaseAnalyzer.INDICATOR_WEIGHTS['momentum']),
-            (price_change_10 > 0, MarketPhaseAnalyzer.INDICATOR_WEIGHTS['market_structure']),
-            (latest['volatility'] < vol_thresh * 1.2, 1.2),
-            (sentiment_score > 0.5, MarketPhaseAnalyzer.INDICATOR_WEIGHTS['sentiment'])
+            (latest['close'] > latest['sma20'] > latest['sma50'], 1.8),
+            (latest['volume_ratio'] > 1.1 and latest['close'] > prev_5['close'], 1.5),
+            (latest['rsi'] > 45 and latest['rsi'] < 70, 1.6),
+            (latest['macd'] > latest['macd_signal'], 1.4),
+            (0.3 < latest['bb_position'] < 0.7, 1.3),
+            (current_price > support * 1.02, 1.7),
+            (price_change_5 > 0.02, 1.3),
+            (price_change_10 > 0.05, 1.4),
+            (latest['volatility'] < vol_thresh * 1.5, 1.2),
+            (sentiment_score > 0.5, 1.1)
         ]
         
-        # 🔴 إشارات الهبوط المحسنة
+        # 🔴 إشارات الهبوط الواقعية
         markdown_signals = [
-            (latest['close'] < latest['sma20'] < latest['sma50'], MarketPhaseAnalyzer.INDICATOR_WEIGHTS['price_trend']),
-            (latest['volume_ratio'] > 1.1 and latest['close'] < prev_5['close'], MarketPhaseAnalyzer.INDICATOR_WEIGHTS['volume_trend']),
-            (latest['rsi'] < 55, MarketPhaseAnalyzer.INDICATOR_WEIGHTS['rsi_signal']),
-            (latest['macd'] < latest['macd_signal'], MarketPhaseAnalyzer.INDICATOR_WEIGHTS['macd_signal']),
-            (latest['bb_position'] < 0.3, MarketPhaseAnalyzer.INDICATOR_WEIGHTS['bb_signal']),
-            (current_price < resistance * 0.98, MarketPhaseAnalyzer.INDICATOR_WEIGHTS['support_resistance']),
-            (price_change_5 < 0, MarketPhaseAnalyzer.INDICATOR_WEIGHTS['momentum']),
-            (price_change_10 < 0, MarketPhaseAnalyzer.INDICATOR_WEIGHTS['market_structure']),
+            (latest['close'] < latest['sma20'] < latest['sma50'], 1.8),
+            (latest['volume_ratio'] > 1.1 and latest['close'] < prev_5['close'], 1.5),
+            (latest['rsi'] < 45, 1.6),
+            (latest['macd'] < latest['macd_signal'], 1.4),
+            (latest['bb_position'] < 0.3, 1.3),
+            (current_price < resistance * 0.98, 1.7),
+            (price_change_5 < -0.02, 1.3),
+            (price_change_10 < -0.05, 1.4),
             (latest['volatility'] > vol_thresh, 1.2),
-            (sentiment_score < 0.4, MarketPhaseAnalyzer.INDICATOR_WEIGHTS['sentiment'])
+            (sentiment_score < 0.4, 1.1)
         ]
         
-        # 🟡 إشارات التجميع المحسنة
+        # 🟡 إشارات التجميع الواقعية
         accumulation_signals = [
-            (latest['volatility'] < vol_thresh, 1.5),
-            (latest['volume_ratio'] < 1.0, 1.2),
-            (latest['rsi'] < rsi_low, 2.0),
-            (abs(latest['close'] - latest['sma20']) / latest['sma20'] < 0.05, 1.5),
-            (latest['macd_hist'] > -0.05, 1.3),
-            (current_price <= support * 1.05, 1.8),
-            (price_change_10 > -0.05, 1.2)
+            (latest['volatility'] < vol_thresh, 1.2),
+            (latest['volume_ratio'] < 0.9, 1.1),
+            (latest['rsi'] < rsi_low, 1.6),
+            (abs(latest['close'] - latest['sma20']) / latest['sma20'] < 0.04, 1.3),
+            (latest['macd_hist'] > -0.02, 1.2),
+            (current_price <= support * 1.03, 1.7),
+            (price_change_10 > -0.03, 1.1)
         ]
         
-        # 🟠 إشارات التوزيع المحسنة
+        # 🟠 إشارات التوزيع الواقعية
         distribution_signals = [
-            (latest['volatility'] > vol_thresh, 1.5),
-            (latest['volume_ratio'] > 1.3, 1.5),
-            (latest['rsi'] > rsi_high, 2.0),
-            (abs(latest['close'] - latest['sma20']) / latest['sma20'] > 0.08, 1.5),
-            (latest['macd_hist'] < 0, 1.3),
-            (current_price >= resistance * 0.95, 1.8),
-            (price_change_10 > 0.1, 1.2)
+            (latest['volatility'] > vol_thresh, 1.2),
+            (latest['volume_ratio'] > 1.3, 1.3),
+            (latest['rsi'] > rsi_high, 1.6),
+            (abs(latest['close'] - latest['sma20']) / latest['sma20'] > 0.06, 1.3),
+            (latest['macd_hist'] < 0, 1.2),
+            (current_price >= resistance * 0.97, 1.7),
+            (price_change_10 > 0.08, 1.1)
         ]
         
         # حساب النقاط المرجحة
@@ -253,15 +250,19 @@ class MarketPhaseAnalyzer:
         }
         
         best_phase = max(scores, key=scores.get)
+        best_score = scores[best_phase]
         
-        # ⭐ حساب الثقة المحسنة
-        total_weight = sum(MarketPhaseAnalyzer.INDICATOR_WEIGHTS.values())
-        max_possible_score = total_weight * 0.8  # 80% من إجمالي الأوزان كحد أقصى واقعي
-        confidence = min(scores[best_phase] / max_possible_score, 1.0)
+        # ⭐ حساب ثقة واقعية (لا تتجاوز 85%)
+        total_possible_score = 16.0  # مجموع الأوزان القصوى الواقعي
+        base_confidence = min(best_score / total_possible_score, 0.85)  # حد أقصى 85%
         
-        # ⭐ زيادة الثقة بناءً على قوة الإشارات
-        if scores[best_phase] > total_weight * 0.6:  # إذا تجاوز 60%
-            confidence = min(confidence * 1.2, 1.0)  # زيادة 20%
+        # ⭐ تعديل الثقة بناءً على قوة الإشارات
+        if best_score > total_possible_score * 0.7:  # إذا تجاوز 70%
+            confidence = min(base_confidence * 1.1, 0.85)  # زيادة طفيفة
+        elif best_score < total_possible_score * 0.4:  # إذا كان أقل من 40%
+            confidence = base_confidence * 0.8  # تخفيض
+        else:
+            confidence = base_confidence
         
         action = MarketPhaseAnalyzer._get_action_recommendation(best_phase, confidence, current_price, support, resistance)
         
@@ -271,11 +272,11 @@ class MarketPhaseAnalyzer:
             "action": action,
             "scores": scores,
             "indicators": {
-                "rsi": round(latest['rsi'], 1) if not pd.isna(latest['rsi']) else 50,
-                "volume_ratio": round(latest['volume_ratio'], 2) if not pd.isna(latest['volume_ratio']) else 1.0,
-                "volatility": round(latest['volatility'] * 100, 1) if not pd.isna(latest['volatility']) else 0.0,
-                "macd_hist": round(latest['macd_hist'], 4) if not pd.isna(latest['macd_hist']) else 0.0,
-                "bb_position": round(latest['bb_position'], 2) if not pd.isna(latest['bb_position']) else 0.5,
+                "rsi": round(latest['rsi'], 1),
+                "volume_ratio": round(latest['volume_ratio'], 2),
+                "volatility": round(latest['volatility'] * 100, 1),
+                "macd_hist": round(latest['macd_hist'], 4),
+                "bb_position": round(latest['bb_position'], 2),
                 "trend": "صاعد" if latest['sma20'] > latest['sma50'] else "هابط",
                 "support": round(support, 2),
                 "resistance": round(resistance, 2),
@@ -287,13 +288,15 @@ class MarketPhaseAnalyzer:
     
     @staticmethod
     def _get_action_recommendation(phase: str, confidence: float, current_price: float, support: float, resistance: float) -> str:
-        """توصيات مبنية على التحليل"""
+        """توصيات واقعية"""
         
         if confidence > 0.75:
             if phase == "صعود":
-                return f"🟢 شراء قوي - الهدف: ${resistance:,.2f} (+{((resistance-current_price)/current_price*100):.1f}%)"
+                profit_potential = ((resistance - current_price) / current_price * 100)
+                return f"🟢 شراء قوي - الهدف: ${resistance:,.2f} (+{profit_potential:.1f}%)"
             elif phase == "هبوط":
-                return f"🔴 بيع قوي - الدعم: ${support:,.2f} ({((support-current_price)/current_price*100):+.1f}%)"
+                risk_potential = ((support - current_price) / current_price * 100)
+                return f"🔴 بيع قوي - الدعم: ${support:,.2f} ({risk_potential:+.1f}%)"
             elif phase == "تجميع":
                 return f"🟡 شراء تراكمي - الدعم: ${support:,.2f}"
             elif phase == "توزيع":
@@ -312,25 +315,20 @@ class MarketPhaseAnalyzer:
         else:
             return "⚪ انتظار - إشارات غير واضحة"
 
-# باقي الكود (TelegramNotifier, CryptoDataFetcher) يبقى كما هو في الإصدار السابق
-# مع التأكد من تحديث CONFIDENCE_THRESHOLD إلى 0.65
-
 class TelegramNotifier:
-    """إشعارات تلغرام مبسطة"""
+    """إشعارات تلغرام"""
     
     def __init__(self, token: str, chat_id: str):
         self.token = token
         self.chat_id = chat_id
         self.base_url = f"https://api.telegram.org/bot{token}"
-        self.confidence_threshold = CONFIDENCE_THRESHOLD  # ⭐ الآن 0.65
+        self.confidence_threshold = CONFIDENCE_THRESHOLD
         
-        safe_log_info(f"تهيئة TelegramNotifier بعتبة ثقة: {self.confidence_threshold*100}%", "system", "config")
+        safe_log_info(f"تهيئة بعتبة ثقة: {self.confidence_threshold*100}%", "system", "config")
 
     async def send_phase_alert(self, coin: str, analysis: Dict[str, Any], price: float, prices: List[float]):
-        """إرسال إشعار مرحلة السوق مع تصفية صارمة"""
         current_confidence = analysis["confidence"]
         
-        # 🔴 تصفية صارمة
         safe_log_info(f"فحص {coin}: الثقة {current_confidence*100}% vs العتبة {self.confidence_threshold*100}%", coin, "filter")
         
         if current_confidence < self.confidence_threshold:
@@ -344,7 +342,6 @@ class TelegramNotifier:
         action = analysis["action"]
         indicators = analysis["indicators"]
         
-        # 🆕 تنسيق مبسط وواضح
         message = f"🎯 **{coin.upper()} - {phase.upper()}**\n\n"
         message += f"💰 **السعر:** ${price:,.2f}\n"
         message += f"📊 **الثقة:** {confidence*100}%\n"
@@ -361,7 +358,7 @@ class TelegramNotifier:
         message += f"• تغير 5 أيام: {indicators['price_change_5']}\n\n"
         
         message += f"🕒 {datetime.now().strftime('%H:%M %d-%m-%Y')}\n"
-        message += f"⚡ v9.1 - مرشح: {self.confidence_threshold*100}%"
+        message += f"⚡ v9.2 - مرشح: {self.confidence_threshold*100}%"
 
         chart_base64 = self._generate_price_chart(prices, coin, indicators['support'], indicators['resistance'])
         
@@ -379,12 +376,9 @@ class TelegramNotifier:
         try:
             plt.figure(figsize=(10, 6))
             plt.plot(prices, label='السعر', color='blue', linewidth=2)
-            
-            # إضافة مستويات الدعم والمقاومة
             plt.axhline(y=support, color='green', linestyle='--', alpha=0.7, label=f'دعم: ${support:,.0f}')
             plt.axhline(y=resistance, color='red', linestyle='--', alpha=0.7, label=f'مقاومة: ${resistance:,.0f}')
-            
-            plt.title(f"{coin.upper()} - تحليل السوق v9.1")
+            plt.title(f"{coin.upper()} - تحليل السوق v9.2")
             plt.xlabel("الفترة")
             plt.ylabel("السعر (USD)")
             plt.legend()
@@ -425,7 +419,7 @@ class TelegramNotifier:
             safe_log_error(f"خطأ في إرسال الصورة: {e}", "system", "telegram")
             return False
 
-# باقي الكود (CryptoDataFetcher والوظائف) يبقى كما هو مع تحديث الإصدار إلى 9.1.0
+# باقي الكود (CryptoDataFetcher والوظائف) يبقى كما هو مع تحديث الإصدار إلى 9.2.0
 
 class CryptoDataFetcher:
     """جلب بيانات العملات"""
@@ -553,7 +547,7 @@ async def market_monitoring_task():
                     safe_log_error(f"خطأ في {coin_key}: {e}", coin_key, "monitoring")
                     continue
                     
-            await asyncio.sleep(300)  # 5 دقائق بين الدورات
+            await asyncio.sleep(300)
             
         except Exception as e:
             safe_log_error(f"خطأ في المهمة الرئيسية: {e}", "all", "monitoring")
@@ -561,7 +555,7 @@ async def market_monitoring_task():
 
 @app.get("/")
 async def root():
-    return {"message": "بوت تحليل السوق المحسن", "version": "9.1.0", "confidence_threshold": CONFIDENCE_THRESHOLD}
+    return {"message": "بوت تحليل السوق المحسن", "version": "9.2.0", "confidence_threshold": CONFIDENCE_THRESHOLD}
 
 @app.get("/phase/{coin}")
 async def get_coin_phase(coin: str):
@@ -575,7 +569,7 @@ async def get_coin_phase(coin: str):
 async def status():
     return {
         "status": "نشط", 
-        "version": "9.1.0",
+        "version": "9.2.0",
         "confidence_threshold": CONFIDENCE_THRESHOLD,
         "supported_coins": list(SUPPORTED_COINS.keys()),
         "cache_size": len(data_fetcher.cache)
@@ -583,7 +577,7 @@ async def status():
 
 @app.on_event("startup")
 async def startup_event():
-    safe_log_info(f"بدء التشغيل - v9.1.0 - عتبة الثقة: {CONFIDENCE_THRESHOLD*100}%", "system", "startup")
+    safe_log_info(f"بدء التشغيل - v9.2.0 - عتبة الثقة: {CONFIDENCE_THRESHOLD*100}%", "system", "startup")
     asyncio.create_task(market_monitoring_task())
 
 @app.on_event("shutdown")
