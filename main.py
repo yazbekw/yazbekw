@@ -14,7 +14,6 @@ import matplotlib.pyplot as plt
 from io import BytesIO
 import base64
 from logging.handlers import RotatingFileHandler
-from scipy.signal import find_peaks
 
 # إعداد التسجيل
 logger = logging.getLogger("crypto_bot")
@@ -40,13 +39,13 @@ logger.propagate = False
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("asyncio").setLevel(logging.WARNING)
 
-app = FastAPI(title="Crypto Market Phase Bot", version="10.0.0")
+app = FastAPI(title="Crypto Market Phase Bot", version="10.1.0")
 
 # إعدادات واقعية
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
-CACHE_TTL = int(os.getenv("CACHE_TTL", 900))
-CONFIDENCE_THRESHOLD = 0.55  # 70% عتبة واقعية
+CACHE_TTL = int(os.getenv("CACHE_TTL", 300))  # 5 دقائق لتحديث أكثر تواتراً
+CONFIDENCE_THRESHOLD = 0.60  # 60% عتبة أكثر واقعية
 
 SUPPORTED_COINS = {
     'btc': {'name': 'Bitcoin', 'coingecko_id': 'bitcoin', 'binance_symbol': 'BTCUSDT', 'symbol': 'BTC'},
@@ -70,240 +69,253 @@ def safe_log_error(message: str, coin: str = "system", source: str = "app"):
     except Exception as e:
         print(f"خطأ في تسجيل الخطأ: {e} - الرسالة: {message}")
 
-class RealisticMarketAnalyzer:
-    """محلل سوق واقعي يعتمد على تحليل تقليدي موثوق"""
+class AccurateMarketAnalyzer:
+    """محلل سوق دقيق يعتمد على بيانات Binance مباشرة"""
     
     @staticmethod
-    def analyze_market_phase(prices: List[float], highs: List[float], lows: List[float], volumes: List[float]) -> Dict[str, Any]:
-        """تحليل واقعي للسوق يعتمد على منهجية متحفظة"""
-        if len(prices) < 30:
+    def calculate_rsi(prices: List[float], period: int = 14) -> float:
+        """حساب RSI بدقة"""
+        if len(prices) < period + 1:
+            return 50.0
+        
+        deltas = np.diff(prices)
+        gains = np.where(deltas > 0, deltas, 0)
+        losses = np.where(deltas < 0, -deltas, 0)
+        
+        avg_gains = pd.Series(gains).rolling(period).mean().dropna().values
+        avg_losses = pd.Series(losses).rolling(period).mean().dropna().values
+        
+        if len(avg_gains) == 0 or len(avg_losses) == 0:
+            return 50.0
+        
+        rs = avg_gains[-1] / (avg_losses[-1] + 1e-10)
+        rsi = 100 - (100 / (1 + rs))
+        return min(max(rsi, 0), 100)
+
+    @staticmethod
+    def calculate_macd(prices: List[float]) -> Dict[str, float]:
+        """حساب MACD بدقة"""
+        if len(prices) < 26:
+            return {'macd': 0, 'signal': 0, 'histogram': 0}
+        
+        ema_12 = pd.Series(prices).ewm(span=12, adjust=False).mean().values
+        ema_26 = pd.Series(prices).ewm(span=26, adjust=False).mean().values
+        
+        macd_line = ema_12[-1] - ema_26[-1]
+        signal_line = pd.Series([ema_12[i] - ema_26[i] for i in range(len(prices))]).ewm(span=9, adjust=False).mean().values[-1]
+        histogram = macd_line - signal_line
+        
+        return {
+            'macd': round(macd_line, 4),
+            'signal': round(signal_line, 4),
+            'histogram': round(histogram, 4)
+        }
+
+    @staticmethod
+    def calculate_moving_averages(prices: List[float]) -> Dict[str, float]:
+        """حساب المتوسطات المتحركة"""
+        if len(prices) < 50:
+            current_price = prices[-1] if prices else 0
+            return {'sma_20': current_price, 'sma_50': current_price, 'ema_9': current_price, 'ema_21': current_price}
+        
+        sma_20 = pd.Series(prices).rolling(20).mean().values[-1]
+        sma_50 = pd.Series(prices).rolling(50).mean().values[-1]
+        ema_9 = pd.Series(prices).ewm(span=9, adjust=False).mean().values[-1]
+        ema_21 = pd.Series(prices).ewm(span=21, adjust=False).mean().values[-1]
+        
+        return {
+            'sma_20': round(sma_20, 2),
+            'sma_50': round(sma_50, 2),
+            'ema_9': round(ema_9, 2),
+            'ema_21': round(ema_21, 2)
+        }
+
+    @staticmethod
+    def analyze_market_phase(prices: List[float], volumes: List[float]) -> Dict[str, Any]:
+        """تحليل دقيق للسوق يعتمد على بيانات حديثة"""
+        if len(prices) < 50:
             return {"phase": "غير محدد", "confidence": 0, "action": "انتظار", "indicators": {}}
         
         try:
-            df = pd.DataFrame({'close': prices, 'high': highs, 'low': lows, 'volume': volumes})
+            current_price = prices[-1]
             
-            # مؤشرات أساسية فقط
-            df['sma_20'] = df['close'].rolling(20).mean()
-            df['sma_50'] = df['close'].rolling(50).mean()
-            df['ema_12'] = df['close'].ewm(span=12, adjust=False).mean()
-            df['ema_26'] = df['close'].ewm(span=26, adjust=False).mean()
+            # حساب المؤشرات الفنية
+            rsi = AccurateMarketAnalyzer.calculate_rsi(prices)
+            macd_data = AccurateMarketAnalyzer.calculate_macd(prices)
+            ma_data = AccurateMarketAnalyzer.calculate_moving_averages(prices)
             
-            # RSI بسيط
-            delta = df['close'].diff()
-            gain = delta.where(delta > 0, 0).rolling(14).mean()
-            loss = (-delta).where(delta < 0, 0).rolling(14).mean()
-            rs = gain / (loss + 1e-10)
-            df['rsi'] = 100 - (100 / (1 + rs))
+            # حساب التغيرات السعرية
+            price_change_24h = ((current_price - prices[-24]) / prices[-24] * 100) if len(prices) >= 24 else 0
+            price_change_3d = ((current_price - prices[-3]) / prices[-3] * 100) if len(prices) >= 3 else 0
+            price_change_7d = ((current_price - prices[-7]) / prices[-7] * 100) if len(prices) >= 7 else 0
             
-            # الحجم النسبي
-            df['volume_sma'] = df['volume'].rolling(20).mean()
-            df['volume_ratio'] = df['volume'] / df['volume_sma']
+            # حساب قوة الحجم
+            volume_ratio = (volumes[-1] / pd.Series(volumes).rolling(20).mean().values[-1]) if len(volumes) >= 20 else 1.0
             
-            # MACD
-            df['macd'] = df['ema_12'] - df['ema_26']
-            df['macd_signal'] = df['macd'].ewm(span=9, adjust=False).mean()
-            df['macd_hist'] = df['macd'] - df['macd_signal']
+            # تحليل الاتجاه
+            trend_strength = AccurateMarketAnalyzer._calculate_trend_strength(prices, ma_data)
             
-            latest = df.iloc[-1]
-            prev_3 = df.iloc[-3] if len(df) > 3 else df.iloc[0]
-            prev_10 = df.iloc[-10] if len(df) > 10 else df.iloc[0]
+            # تحليل الزخم
+            momentum_strength = AccurateMarketAnalyzer._calculate_momentum_strength(rsi, macd_data, price_change_24h)
             
-            return RealisticMarketAnalyzer._conservative_analysis(latest, prev_3, prev_10, df)
+            # تحديد المرحلة
+            phase, confidence = AccurateMarketAnalyzer._determine_market_phase(
+                trend_strength, momentum_strength, rsi, macd_data, ma_data, current_price
+            )
+            
+            # التوصية
+            action = AccurateMarketAnalyzer._get_trading_action(phase, confidence, rsi)
+            
+            return {
+                "phase": phase,
+                "confidence": round(confidence, 2),
+                "action": action,
+                "indicators": {
+                    "rsi": round(rsi, 1),
+                    "volume_ratio": round(volume_ratio, 2),
+                    "macd_hist": macd_data['histogram'],
+                    "macd_line": macd_data['macd'],
+                    "macd_signal": macd_data['signal'],
+                    "ema_9": ma_data['ema_9'],
+                    "ema_21": ma_data['ema_21'],
+                    "sma_20": ma_data['sma_20'],
+                    "sma_50": ma_data['sma_50'],
+                    "trend": "صاعد" if ma_data['ema_9'] > ma_data['ema_21'] else "هابط",
+                    "price_change_24h": f"{price_change_24h:+.1f}%",
+                    "price_change_3d": f"{price_change_3d:+.1f}%",
+                    "price_change_7d": f"{price_change_7d:+.1f}%",
+                    "momentum": "قوي" if momentum_strength > 0.7 else "ضعيف" if momentum_strength < 0.3 else "متوسط"
+                }
+            }
             
         except Exception as e:
-            safe_log_error(f"خطأ في التحليل: {e}", "N/A", "analyzer")
+            safe_log_error(f"خطأ في التحليل الدقيق: {e}", "N/A", "analyzer")
             return {"phase": "خطأ", "confidence": 0, "action": "انتظار", "indicators": {}}
-    
+
     @staticmethod
-    def _conservative_analysis(latest, prev_3, prev_10, df) -> Dict[str, Any]:
-        """تحليل متحفظ واقعي"""
-        
-        current_price = latest['close']
-        price_change_3d = (current_price - prev_3['close']) / prev_3['close']
-        price_change_10d = (current_price - prev_10['close']) / prev_10['close']
-        
-        # 🔍 تحليل الاتجاه الأساسي (الأهم)
-        trend_strength = RealisticMarketAnalyzer._calculate_trend_strength(df)
-        
-        # 🔍 تحليل الزخم
-        momentum_strength = RealisticMarketAnalyzer._calculate_momentum(latest, prev_3, prev_10)
-        
-        # 🔍 تحليل القوة الشرائية/البيعية
-        volume_strength = RealisticMarketAnalyzer._calculate_volume_strength(latest, df)
-        
-        # 🔍 تحليل المؤشرات الفنية
-        indicator_strength = RealisticMarketAnalyzer._calculate_indicator_strength(latest)
-        
-        # 🎯 تحديد المرحلة بناءً على تحليل متكامل
-        phase, confidence = RealisticMarketAnalyzer._determine_phase_conservative(
-            trend_strength, momentum_strength, volume_strength, indicator_strength,
-            price_change_3d, price_change_10d, latest
-        )
-        
-        # 🎯 توصية واقعية
-        action = RealisticMarketAnalyzer._get_realistic_action(phase, confidence, current_price)
-        
-        return {
-            "phase": phase,
-            "confidence": round(confidence, 2),
-            "action": action,
-            "indicators": {
-                "rsi": round(latest['rsi'], 1) if not pd.isna(latest['rsi']) else 50,
-                "volume_ratio": round(latest['volume_ratio'], 2) if not pd.isna(latest['volume_ratio']) else 1.0,
-                "macd_hist": round(latest['macd_hist'], 4) if not pd.isna(latest['macd_hist']) else 0.0,
-                "trend": "صاعد" if latest['sma_20'] > latest['sma_50'] else "هابط",
-                "price_change_3d": f"{price_change_3d*100:+.1f}%",
-                "price_change_10d": f"{price_change_10d*100:+.1f}%",
-                "momentum": "قوي" if momentum_strength > 0.7 else "ضعيف" if momentum_strength < 0.3 else "متوسط"
-            }
-        }
-    
-    @staticmethod
-    def _calculate_trend_strength(df) -> float:
-        """حساب قوة الاتجاه بشكل واقعي"""
+    def _calculate_trend_strength(prices: List[float], ma_data: Dict[str, float]) -> float:
+        """حساب قوة الاتجاه"""
         try:
             # اتجاه المتوسطات
-            sma_trend = 1.0 if df['sma_20'].iloc[-1] > df['sma_50'].iloc[-1] else 0.0
+            ema_trend = 1.0 if ma_data['ema_9'] > ma_data['ema_21'] else 0.0
+            sma_trend = 1.0 if ma_data['sma_20'] > ma_data['sma_50'] else 0.0
             
-            # اتجاه الأسعار الأخيرة
-            recent_prices = df['close'].iloc[-5:]
-            price_trend = 1.0 if recent_prices.iloc[-1] > recent_prices.iloc[0] else 0.0
+            # اتجاه الأسعار الأخيرة (آخر 10 فترات)
+            recent_prices = prices[-10:]
+            price_trend = 1.0 if recent_prices[-1] > recent_prices[0] else 0.0
             
-            # قوة الاتجاه بناءً على استقراره
-            trend_stability = min(abs(df['close'].iloc[-10:].pct_change().std() * 100), 1.0)
+            # استقرار الاتجاه
+            trend_stability = min(abs(pd.Series(prices[-20:]).pct_change().std() * 100), 2.0) / 2.0
             
-            return (sma_trend * 0.4 + price_trend * 0.4 + (1 - trend_stability) * 0.2)
+            return (ema_trend * 0.4 + sma_trend * 0.3 + price_trend * 0.2 + (1 - trend_stability) * 0.1)
         except:
             return 0.5
-    
+
     @staticmethod
-    def _calculate_momentum(latest, prev_3, prev_10) -> float:
-        """حساب الزخم بشكل واقعي"""
+    def _calculate_momentum_strength(rsi: float, macd_data: Dict[str, float], price_change_24h: float) -> float:
+        """حساب قوة الزخم"""
         try:
-            # زخم قصير المدى (3 أيام)
-            short_momentum = 1.0 if latest['close'] > prev_3['close'] else 0.0
-            
-            # زخم طويل المدى (10 أيام)
-            long_momentum = 1.0 if latest['close'] > prev_10['close'] else 0.0
-            
-            # قوة RSI
-            rsi_strength = 0.0
-            if not pd.isna(latest['rsi']):
-                if latest['rsi'] > 60:
-                    rsi_strength = 0.8
-                elif latest['rsi'] < 40:
-                    rsi_strength = 0.2
-                else:
-                    rsi_strength = 0.5
-            
-            return (short_momentum * 0.3 + long_momentum * 0.3 + rsi_strength * 0.4)
-        except:
-            return 0.5
-    
-    @staticmethod
-    def _calculate_volume_strength(latest, df) -> float:
-        """حساب قوة الحجم"""
-        try:
-            volume_ratio = latest['volume_ratio']
-            if pd.isna(volume_ratio):
-                return 0.5
-                
-            if volume_ratio > 1.5:
-                return 0.8  # حجم عالي
-            elif volume_ratio > 1.2:
-                return 0.6  # حجم فوق المتوسط
-            elif volume_ratio > 0.8:
-                return 0.5  # حجم طبيعي
+            # زخم RSI
+            rsi_momentum = 0.0
+            if rsi > 70:
+                rsi_momentum = 0.9  # شراء مفرط
+            elif rsi > 60:
+                rsi_momentum = 0.7  # زخم صاعد قوي
+            elif rsi > 50:
+                rsi_momentum = 0.6  # زخم صاعد
+            elif rsi > 40:
+                rsi_momentum = 0.4  # زخم هابط
+            elif rsi > 30:
+                rsi_momentum = 0.3  # زخم هابط قوي
             else:
-                return 0.3  # حجم منخفض
+                rsi_momentum = 0.1  # بيع مفرط
+
+            # زخم MACD
+            macd_momentum = 0.5
+            if macd_data['histogram'] > 0.01:
+                macd_momentum = 0.8
+            elif macd_data['histogram'] > 0:
+                macd_momentum = 0.6
+            elif macd_data['histogram'] > -0.01:
+                macd_momentum = 0.4
+            else:
+                macd_momentum = 0.2
+
+            # زخم السعر
+            price_momentum = 0.5
+            if price_change_24h > 3:
+                price_momentum = 0.8
+            elif price_change_24h > 1:
+                price_momentum = 0.6
+            elif price_change_24h > -1:
+                price_momentum = 0.5
+            elif price_change_24h > -3:
+                price_momentum = 0.4
+            else:
+                price_momentum = 0.2
+
+            return (rsi_momentum * 0.4 + macd_momentum * 0.4 + price_momentum * 0.2)
         except:
             return 0.5
-    
+
     @staticmethod
-    def _calculate_indicator_strength(latest) -> float:
-        """حساب قوة المؤشرات الفنية"""
-        try:
-            # قوة MACD
-            macd_strength = 0.5
-            if not pd.isna(latest['macd_hist']):
-                if latest['macd_hist'] > 0.01:
-                    macd_strength = 0.8
-                elif latest['macd_hist'] < -0.01:
-                    macd_strength = 0.2
-                else:
-                    macd_strength = 0.5
-            
-            # قوة RSI
-            rsi_strength = 0.5
-            if not pd.isna(latest['rsi']):
-                if 40 <= latest['rsi'] <= 60:
-                    rsi_strength = 0.7  # RSI في منطقة متوازنة
-                elif 30 <= latest['rsi'] <= 70:
-                    rsi_strength = 0.5  # RSI في منطقة مقبولة
-                else:
-                    rsi_strength = 0.3  # RSI في منطقة متطرفة
-            
-            return (macd_strength * 0.6 + rsi_strength * 0.4)
-        except:
-            return 0.5
-    
-    @staticmethod
-    def _determine_phase_conservative(trend, momentum, volume, indicators, change_3d, change_10d, latest) -> Tuple[str, float]:
-        """تحديد المرحلة بمنهجية متحفظة"""
+    def _determine_market_phase(trend_strength: float, momentum_strength: float, rsi: float, 
+                               macd_data: Dict[str, float], ma_data: Dict[str, float], 
+                               current_price: float) -> Tuple[str, float]:
+        """تحديد مرحلة السوق بدقة"""
         
-        # 🎯 شروط صارمة لكل مرحلة
-        
-        # شراء قوي (شروط صارمة)
-        if (trend > 0.7 and momentum > 0.7 and volume > 0.6 and 
-            indicators > 0.6 and change_3d > 0.02 and change_10d > 0.05):
-            confidence = min((trend + momentum + volume + indicators) / 4 * 0.9, 0.85)
+        # صعود قوي
+        if (trend_strength > 0.7 and momentum_strength > 0.7 and 
+            rsi > 60 and macd_data['histogram'] > 0 and 
+            current_price > ma_data['sma_20']):
+            confidence = min((trend_strength + momentum_strength) / 2 * 0.9, 0.85)
             return "صعود", confidence
         
-        # بيع قوي (شروط صارمة)
-        elif (trend < 0.3 and momentum < 0.3 and volume > 0.6 and 
-              indicators < 0.4 and change_3d < -0.02 and change_10d < -0.05):
-            confidence = min(( (1-trend) + (1-momentum) + volume + (1-indicators) ) / 4 * 0.9, 0.85)
+        # هبوط قوي
+        elif (trend_strength < 0.3 and momentum_strength < 0.3 and 
+              rsi < 40 and macd_data['histogram'] < 0 and 
+              current_price < ma_data['sma_20']):
+            confidence = min(((1 - trend_strength) + (1 - momentum_strength)) / 2 * 0.9, 0.85)
             return "هبوط", confidence
         
-        # تجميع (تراكم)
-        elif (trend > 0.5 and momentum < 0.6 and volume < 0.7 and 
-              indicators > 0.4 and abs(change_3d) < 0.05):
-            confidence = (trend + (1-momentum) + (1-volume) + indicators) / 4 * 0.8
-            return "تجميع", min(confidence, 0.75)
+        # صعود معتدل
+        elif (trend_strength > 0.6 and momentum_strength > 0.5 and 
+              current_price > ma_data['ema_9']):
+            confidence = (trend_strength + momentum_strength) / 2 * 0.7
+            return "صعود", min(confidence, 0.75)
         
-        # توزيع
-        elif (trend < 0.6 and momentum > 0.4 and volume > 0.7 and 
-              indicators < 0.6 and change_10d > 0.08):
-            confidence = ((1-trend) + momentum + volume + (1-indicators)) / 4 * 0.8
-            return "توزيع", min(confidence, 0.75)
+        # هبوط معتدل
+        elif (trend_strength < 0.4 and momentum_strength < 0.5 and 
+              current_price < ma_data['ema_9']):
+            confidence = ((1 - trend_strength) + (1 - momentum_strength)) / 2 * 0.7
+            return "هبوط", min(confidence, 0.75)
         
-        # اتجاه صاعد ضعيف
-        elif trend > 0.6 and momentum > 0.5:
-            confidence = (trend + momentum) / 2 * 0.7
-            return "صعود", min(confidence, 0.65)
-        
-        # اتجاه هابط ضعيف
-        elif trend < 0.4 and momentum < 0.5:
-            confidence = ((1-trend) + (1-momentum)) / 2 * 0.7
-            return "هبوط", min(confidence, 0.65)
+        # توطيد (تجميع/توزيع)
+        elif (0.4 <= trend_strength <= 0.6 and 
+              0.4 <= momentum_strength <= 0.6 and 
+              40 <= rsi <= 60):
+            confidence = 0.5
+            if current_price > ma_data['sma_50']:
+                return "تجميع", confidence
+            else:
+                return "توزيع", confidence
         
         else:
-            # غير محدد - معظم الحالات
-            max_component = max(trend, momentum, volume, indicators)
-            confidence = max_component * 0.5
+            # غير محدد
+            confidence = max(trend_strength, momentum_strength) * 0.5
             return "غير محدد", min(confidence, 0.5)
-    
+
     @staticmethod
-    def _get_realistic_action(phase: str, confidence: float, current_price: float) -> str:
-        """توصيات واقعية ومحافظة"""
+    def _get_trading_action(phase: str, confidence: float, rsi: float) -> str:
+        """توصيات تداول واقعية"""
         
         if confidence > 0.75:
-            if phase == "صعود":
+            if phase == "صعود" and rsi < 70:
                 return "🟢 شراء - ثقة عالية"
-            elif phase == "هبوط":
+            elif phase == "هبوط" and rsi > 30:
                 return "🔴 بيع - مخاطر عالية"
             else:
-                return "⚪ انتظار - إشارة قوية"
+                return "⚪ انتظار - إشارة قوية ولكن RSI متطرف"
         
         elif confidence > 0.65:
             if phase == "صعود":
@@ -329,7 +341,7 @@ class RealisticMarketAnalyzer:
             return "⚪ انتظار - عدم وضوح"
 
 class TelegramNotifier:
-    """إشعارات واقعية"""
+    """إشعارات دقيقة"""
     
     def __init__(self, token: str, chat_id: str):
         self.token = token
@@ -348,9 +360,10 @@ class TelegramNotifier:
             safe_log_info(f"🚫 تم رفض إشعار {coin}: الثقة غير كافية", coin, "filter")
             return False
         
-        # 🔴 منع الإشعارات غير الواقعية
-        if current_confidence > 0.85:
-            safe_log_info(f"🚫 تم رفض إشعار {coin}: ثقة غير واقعية {current_confidence*100}%", coin, "reality_check")
+        # فحص واقعية المؤشرات
+        rsi = analysis["indicators"]["rsi"]
+        if rsi > 80 or rsi < 20:
+            safe_log_info(f"🚫 تم رفض إشعار {coin}: RSI متطرف {rsi}", coin, "reality_check")
             return False
         
         safe_log_info(f"✅ تم قبول إشعار {coin}: ثقة واقعية {current_confidence*100}%", coin, "filter")
@@ -362,43 +375,56 @@ class TelegramNotifier:
         
         message = f"📊 **{coin.upper()} - {phase}**\n\n"
         message += f"💰 **السعر:** ${price:,.2f}\n"
-        message += f"🎯 **الثقة:** {confidence*100}%\n"
+        message += f"🎯 **الثقة:** {confidence*100:.1f}%\n"
         message += f"⚡ **التوصية:** {action}\n\n"
         
         message += f"🔍 **التحليل:**\n"
         message += f"• RSI: {indicators['rsi']}\n"
         message += f"• الحجم: {indicators['volume_ratio']}x\n"
-        message += f"• MACD: {indicators['macd_hist']}\n"
+        message += f"• MACD: {indicators['macd_hist']:.3f}\n"
         message += f"• الاتجاه: {indicators['trend']}\n"
-        message += f"• تغير 3 أيام: {indicators['price_change_3d']}\n"
-        message += f"• الزخم: {indicators['momentum']}\n\n"
+        message += f"• تغير 24س: {indicators['price_change_24h']}\n"
+        message += f"• الزخم: {indicators['momentum']}\n"
+        message += f"• EMA(9): {indicators['ema_9']:.2f}\n"
+        message += f"• EMA(21): {indicators['ema_21']:.2f}\n\n"
         
         message += f"🕒 {datetime.now().strftime('%H:%M %d-%m-%Y')}\n"
-        message += f"⚡ v10.0 - مرشح: {self.confidence_threshold*100}%"
+        message += f"⚡ v10.1 - مرشح: {self.confidence_threshold*100}%"
 
-        chart_base64 = self._generate_simple_chart(prices, coin)
+        chart_base64 = self._generate_accurate_chart(prices, coin, indicators)
         
         for attempt in range(3):
             success = await self._send_photo_with_caption(message, chart_base64)
             if success:
-                safe_log_info(f"تم إرسال إشعار واقعي لـ {coin}", coin, "telegram")
+                safe_log_info(f"تم إرسال إشعار دقيق لـ {coin}", coin, "telegram")
                 return True
             await asyncio.sleep(2 ** attempt)
         
         safe_log_error(f"فشل إرسال لـ {coin}", coin, "telegram")
         return False
 
-    def _generate_simple_chart(self, prices: List[float], coin: str) -> str:
+    def _generate_accurate_chart(self, prices: List[float], coin: str, indicators: Dict[str, Any]) -> str:
         try:
-            plt.figure(figsize=(8, 4))
-            plt.plot(prices, color='blue', linewidth=1.5)
-            plt.title(f"{coin.upper()} - السعر")
+            plt.figure(figsize=(10, 6))
+            
+            # رسم السعر
+            plt.plot(prices[-100:], color='blue', linewidth=2, label='السعر')
+            
+            # رسم المتوسطات إذا كانت متوفرة
+            if len(prices) >= 21:
+                ema_9 = pd.Series(prices).ewm(span=9, adjust=False).mean().values[-100:]
+                ema_21 = pd.Series(prices).ewm(span=21, adjust=False).mean().values[-100:]
+                plt.plot(ema_9, color='orange', linewidth=1, label='EMA(9)')
+                plt.plot(ema_21, color='red', linewidth=1, label='EMA(21)')
+            
+            plt.title(f"{coin.upper()} - التحليل الدقيق")
             plt.xlabel("الفترة")
-            plt.ylabel("السعر (USD)")
+            plt.ylabel("السعر (USDT)")
+            plt.legend()
             plt.grid(True, alpha=0.3)
             
             buffer = BytesIO()
-            plt.savefig(buffer, format='png', dpi=80, bbox_inches='tight')
+            plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight')
             buffer.seek(0)
             plt.close()
             return base64.b64encode(buffer.read()).decode('utf-8')
@@ -417,7 +443,7 @@ class TelegramNotifier:
             payload = {
                 'chat_id': self.chat_id,
                 'caption': caption,
-                'parse_mode': 'HTML'
+                'parse_mode': 'Markdown'
             }
             
             files = {
@@ -432,94 +458,103 @@ class TelegramNotifier:
             safe_log_error(f"خطأ في إرسال الصورة: {e}", "system", "telegram")
             return False
 
-class CryptoDataFetcher:
-    """جلب بيانات بسيط"""
+class AccurateDataFetcher:
+    """جلب بيانات دقيق من Binance مباشرة"""
     
     def __init__(self):
         self.client = httpx.AsyncClient(timeout=30.0)
-        self.analyzer = RealisticMarketAnalyzer()
+        self.analyzer = AccurateMarketAnalyzer()
         self.cache = {}
 
     async def get_coin_data(self, coin_data: Dict[str, str]) -> Dict[str, Any]:
-        cache_key = f"{coin_data['coingecko_id']}_data"
+        cache_key = f"{coin_data['binance_symbol']}_accurate"
         current_time = time.time()
         
         if cache_key in self.cache and current_time - self.cache[cache_key]['timestamp'] < CACHE_TTL:
             return self.cache[cache_key]['data']
         
         try:
-            data = await self._fetch_from_binance(coin_data['binance_symbol'])
-            if not data.get('prices'):
-                data = await self._fetch_from_coingecko(coin_data['coingecko_id'])
+            # استخدام Binance كمصدر رئيسي فقط
+            data = await self._fetch_from_binance_accurate(coin_data['binance_symbol'])
             
             if not data.get('prices'):
-                raise ValueError("لا بيانات")
+                safe_log_error(f"فشل جلب بيانات من Binance لـ {coin_data['symbol']}", coin_data['symbol'], "data_fetcher")
+                return self._get_fallback_data(current_time)
             
             phase_analysis = self.analyzer.analyze_market_phase(
-                data['prices'], data['highs'], data['lows'], data['volumes']
+                data['prices'], data['volumes']
             )
             
             result = {
                 'price': data['prices'][-1] if data['prices'] else 0,
                 'phase_analysis': phase_analysis,
                 'prices': data['prices'],
+                'highs': data['highs'],
+                'lows': data['lows'],
+                'volumes': data['volumes'],
                 'timestamp': current_time,
-                'source': data['source']
+                'source': 'binance_accurate'
             }
             
             self.cache[cache_key] = {'data': result, 'timestamp': current_time}
+            safe_log_info(f"تم جلب بيانات دقيقة لـ {coin_data['symbol']} من Binance", coin_data['symbol'], "data_fetcher")
             return result
                 
         except Exception as e:
             safe_log_error(f"خطأ في جلب بيانات {coin_data['symbol']}: {e}", coin_data['symbol'], "data_fetcher")
-            return {'price': 0, 'phase_analysis': {"phase": "غير محدد", "confidence": 0, "action": "انتظار", "indicators": {}}, 'prices': [], 'timestamp': current_time, 'source': 'fallback'}
+            return self._get_fallback_data(current_time)
 
-    async def _fetch_from_coingecko(self, coin_id: str) -> Dict[str, Any]:
-        url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart?vs_currency=usd&days=60&interval=daily"
-        for attempt in range(2):
-            try:
-                response = await self.client.get(url)
-                if response.status_code == 200:
-                    data = response.json()
-                    prices = [item[1] for item in data.get('prices', [])][-60:]
-                    volumes = [item[1] for item in data.get('total_volumes', [])][-60:]
-                    highs = [p * 1.01 for p in prices]
-                    lows = [p * 0.99 for p in prices]
-                    return {'prices': prices, 'highs': highs, 'lows': lows, 'volumes': volumes, 'source': 'coingecko'}
-                await asyncio.sleep(2 ** attempt)
-            except Exception:
-                await asyncio.sleep(2 ** attempt)
-        return {'prices': [], 'highs': [], 'lows': [], 'volumes': [], 'source': 'coingecko_failed'}
-
-    async def _fetch_from_binance(self, symbol: str) -> Dict[str, Any]:
-        url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1d&limit=60"
-        for attempt in range(2):
-            try:
-                response = await self.client.get(url)
-                if response.status_code == 200:
-                    data = response.json()
-                    return {
-                        'prices': [float(item[4]) for item in data],
-                        'highs': [float(item[2]) for item in data],
-                        'lows': [float(item[3]) for item in data],
-                        'volumes': [float(item[5]) for item in data],
-                        'source': 'binance'
-                    }
-                await asyncio.sleep(2 ** attempt)
-            except Exception:
-                await asyncio.sleep(2 ** attempt)
+    async def _fetch_from_binance_accurate(self, symbol: str) -> Dict[str, Any]:
+        """جلب بيانات دقيقة من Binance بفترات مناسبة"""
+        urls = [
+            f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1h&limit=168",  # 7 أيام بساعات
+            f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=5m&limit=288"   # 24 ساعة ب5 دقائق
+        ]
+        
+        for url in urls:
+            for attempt in range(3):
+                try:
+                    response = await self.client.get(url)
+                    if response.status_code == 200:
+                        data = response.json()
+                        if data:
+                            return {
+                                'prices': [float(item[4]) for item in data],  # سعر الإغلاق
+                                'highs': [float(item[2]) for item in data],   # أعلى سعر
+                                'lows': [float(item[3]) for item in data],    # أدنى سعر
+                                'volumes': [float(item[5]) for item in data], # حجم التداول
+                                'source': 'binance_accurate'
+                            }
+                    await asyncio.sleep(1 ** attempt)
+                except Exception as e:
+                    safe_log_error(f"خطأ في جلب البيانات من {url}: {e}", symbol, "binance_fetch")
+                    await asyncio.sleep(1 ** attempt)
+        
         return {'prices': [], 'highs': [], 'lows': [], 'volumes': [], 'source': 'binance_failed'}
+
+    def _get_fallback_data(self, timestamp: float) -> Dict[str, Any]:
+        """بيانات احتياطية عند الفشل"""
+        return {
+            'price': 0,
+            'phase_analysis': {"phase": "غير محدد", "confidence": 0, "action": "انتظار", "indicators": {}},
+            'prices': [],
+            'highs': [],
+            'lows': [],
+            'volumes': [],
+            'timestamp': timestamp,
+            'source': 'fallback'
+        }
 
     async def close(self):
         await self.client.aclose()
 
 # التهيئة
-data_fetcher = CryptoDataFetcher()
+data_fetcher = AccurateDataFetcher()
 notifier = TelegramNotifier(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
 
-async def market_monitoring_task():
-    """مراقبة واقعية"""
-    safe_log_info(f"بدء المراقبة - عتبة واقعية: {CONFIDENCE_THRESHOLD*100}%", "all", "monitoring")
+async def accurate_market_monitoring_task():
+    """مراقبة دقيقة للسوق"""
+    safe_log_info(f"بدء المراقبة الدقيقة - عتبة واقعية: {CONFIDENCE_THRESHOLD*100}%", "all", "monitoring")
     
     while True:
         try:
@@ -528,57 +563,72 @@ async def market_monitoring_task():
                     data = await data_fetcher.get_coin_data(coin_data)
                     phase_analysis = data['phase_analysis']
                     
-                    safe_log_info(f"{coin_key}: {phase_analysis['phase']} (ثقة: {phase_analysis['confidence']*100}%)", coin_key, "monitoring")
+                    safe_log_info(f"{coin_key}: {phase_analysis['phase']} (ثقة: {phase_analysis['confidence']*100:.1f}%, RSI: {phase_analysis['indicators'].get('rsi', 0)})", coin_key, "monitoring")
                     
                     if phase_analysis['confidence'] >= CONFIDENCE_THRESHOLD:
                         success = await notifier.send_phase_alert(coin_key, phase_analysis, data['price'], data['prices'])
                         if success:
-                            safe_log_info(f"✅ تم إرسال إشعار واقعي لـ {coin_key}", coin_key, "monitoring")
+                            safe_log_info(f"✅ تم إرسال إشعار دقيق لـ {coin_key}", coin_key, "monitoring")
+                            # انتظار بعد إرسال إشعار ناجح لتجنب التكرار
+                            await asyncio.sleep(10)
                     else:
                         safe_log_info(f"⏭️ تخطي {coin_key}: ثقة غير كافية", coin_key, "monitoring")
                     
-                    await asyncio.sleep(5)
+                    await asyncio.sleep(2)  # انتظار قصير بين العملات
                     
                 except Exception as e:
                     safe_log_error(f"خطأ في {coin_key}: {e}", coin_key, "monitoring")
                     continue
                     
-            await asyncio.sleep(600)  # 10 دقائق بين الدورات
+            safe_log_info("اكتملت دورة المراقبة الدقيقة", "all", "monitoring")
+            await asyncio.sleep(300)  # 5 دقائق بين الدورات
             
         except Exception as e:
             safe_log_error(f"خطأ في المهمة الرئيسية: {e}", "all", "monitoring")
-            await asyncio.sleep(120)
+            await asyncio.sleep(60)
 
 @app.get("/")
 async def root():
-    return {"message": "بوت تحليل واقعي", "version": "10.0.0", "confidence_threshold": CONFIDENCE_THRESHOLD}
+    return {
+        "message": "بوت تحليل دقيق v10.1", 
+        "version": "10.1.0", 
+        "confidence_threshold": CONFIDENCE_THRESHOLD,
+        "data_source": "Binance مباشرة"
+    }
 
 @app.get("/phase/{coin}")
 async def get_coin_phase(coin: str):
     if coin not in SUPPORTED_COINS:
-        raise HTTPException(400, "غير مدعومة")
+        raise HTTPException(400, "العملة غير مدعومة")
     coin_data = SUPPORTED_COINS[coin]
     data = await data_fetcher.get_coin_data(coin_data)
-    return {"coin": coin, "price": data['price'], "phase_analysis": data['phase_analysis']}
+    return {
+        "coin": coin, 
+        "price": data['price'], 
+        "phase_analysis": data['phase_analysis'],
+        "data_source": data['source']
+    }
 
 @app.get("/status")
 async def status():
     return {
-        "status": "نشط - تحليل واقعي", 
-        "version": "10.0.0",
+        "status": "نشط - تحليل دقيق", 
+        "version": "10.1.0",
         "confidence_threshold": CONFIDENCE_THRESHOLD,
+        "data_source": "Binance مباشرة",
         "supported_coins": list(SUPPORTED_COINS.keys()),
-        "cache_size": len(data_fetcher.cache)
+        "cache_size": len(data_fetcher.cache),
+        "cache_ttl": CACHE_TTL
     }
 
 @app.on_event("startup")
 async def startup_event():
-    safe_log_info(f"بدء التشغيل - v10.0.0 - تحليل واقعي", "system", "startup")
-    asyncio.create_task(market_monitoring_task())
+    safe_log_info(f"بدء التشغيل - v10.1.0 - تحليل دقيق من Binance", "system", "startup")
+    asyncio.create_task(accurate_market_monitoring_task())
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    safe_log_info("إيقاف البوت", "system", "shutdown")
+    safe_log_info("إيقاف البوت الدقيق", "system", "shutdown")
     await data_fetcher.close()
 
 if __name__ == "__main__":
