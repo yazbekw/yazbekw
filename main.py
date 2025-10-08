@@ -46,7 +46,7 @@ app = FastAPI(title="Crypto Market Phase Bot", version="9.2.0")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 CACHE_TTL = int(os.getenv("CACHE_TTL", 900))
-CONFIDENCE_THRESHOLD = 0.65  # 65% عتبة واقعية
+CONFIDENCE_THRESHOLD = 0.85  # 65% عتبة واقعية
 
 SUPPORTED_COINS = {
     'btc': {'name': 'Bitcoin', 'coingecko_id': 'bitcoin', 'binance_symbol': 'BTCUSDT', 'symbol': 'BTC',
