@@ -19,6 +19,9 @@ from logging.handlers import RotatingFileHandler
 logger = logging.getLogger("crypto_bot")
 logger.setLevel(logging.INFO)
 
+# وقت بدء التشغيل
+start_time = time.time()
+
 for handler in logger.handlers[:]:
     logger.removeHandler(handler)
 
@@ -605,7 +608,7 @@ class TelegramNotifier:
             plt.figure(figsize=(14, 8))
             
             # لون الخلفية بناء على نوع الإشارة
-            background_color = 'lightgreen' if signal == 'BUY' else 'lightcoral' if signal == 'SELL' else 'lightblue'
+            background_color = '#e8f5e8' if signal == 'BUY' else '#fde8e8' if signal == 'SELL' else '#e8f0f8'
             plt.gca().set_facecolor(background_color)
             
             # رسم السعر بلون مميز
@@ -622,16 +625,16 @@ class TelegramNotifier:
             # إضافة علامة الإشارة
             signal_color = signal_config["color"]
             plt.axvline(x=len(prices[-50:])-1, color=signal_color, linestyle='-', alpha=0.9, linewidth=4, 
-                       label=f'نقطة الإشارة - {signal_config["title"]}')
+                       label=f'إشارة - {signal_config["title"]}')
             
             # إضافة نقاط مهمة
             plt.scatter(len(prices[-50:])-1, prices[-1], color=signal_color, s=200, zorder=5, 
-                       marker='*', edgecolors='white', linewidth=2)
+                       marker='o', edgecolors='white', linewidth=2)
             
             # العنوان المميز
             level_name = confidence_level["name"]
-            signal_emoji = signal_config["signal_emoji"]
-            plt.title(f"{signal_emoji} {coin.upper()} - إشارة {signal_config['title']} - ثقة {level_name} {signal_emoji}", 
+            signal_emoji = "🟢" if signal == 'BUY' else "🔴" if signal == 'SELL' else "⚪"
+            plt.title(f"{signal_emoji} {coin.upper()} - إشارة {signal_config['title']} - ثقة {level_name}", 
                      fontsize=16, fontweight='bold', color=signal_color)
             
             plt.xlabel("الشموع (5 دقائق)", fontsize=12)
@@ -640,7 +643,9 @@ class TelegramNotifier:
             plt.grid(True, alpha=0.3)
             
             buffer = BytesIO()
-            plt.savefig(buffer, format='png', dpi=120, bbox_inches='tight', facecolor=background_color)
+            plt.savefig(buffer, format='png', dpi=120, bbox_inches='tight', 
+                       facecolor=background_color, 
+                       edgecolor='none')
             buffer.seek(0)
             plt.close()
             return base64.b64encode(buffer.read()).decode('utf-8')
@@ -674,7 +679,6 @@ class TelegramNotifier:
             safe_log_error(f"خطأ في إرسال الصورة: {e}", "system", "telegram")
             return False
 
-# باقي الكود يبقى كما هو (BinanceDataFetcher والمهام الأخرى)
 class BinanceDataFetcher:
     """جلب بيانات من Binance للإطار 5 دقائق"""
     
@@ -766,7 +770,7 @@ notifier = TelegramNotifier(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
 
 async def health_check_task():
     """مهمة الفحص الصحي لإبقاء البوت نشطاً"""
-    health_check_url = f"http://localhost:{os.getenv('PORT', 8000)}/status"
+    health_check_url = f"http://localhost:{os.getenv('PORT', 8000)}/health"
     
     while True:
         try:
@@ -781,16 +785,6 @@ async def health_check_task():
         
         # فحص كل دقيقتين (أقل من وقت النوم على Render)
         await asyncio.sleep(120)
-
-@app.get("/health")
-async def health_check():
-    """endpoint الفحص الصحي الأساسي"""
-    return {
-        "status": "نشط", 
-        "timestamp": datetime.now().isoformat(),
-        "version": "5.0.0",
-        "service": "Crypto Trading Bot"
-    }
 
 async def trading_signals_monitoring_task():
     """مراقبة إشارات التداول مع فحص صحي"""
@@ -839,7 +833,7 @@ async def trading_signals_monitoring_task():
             safe_log_error(f"خطأ في المهمة الرئيسية: {e}", "all", "monitoring")
             await asyncio.sleep(60)
 
-# endpoints تبقى كما هي
+# الـ endpoints الأساسية
 @app.get("/")
 async def root():
     return {
@@ -850,6 +844,31 @@ async def root():
         "confidence_levels": CONFIDENCE_LEVELS,
         "signal_types": SIGNAL_TYPES,
         "data_source": "Binance مباشرة"
+    }
+
+@app.get("/health")
+async def health_check():
+    """endpoint الفحص الصحي الأساسي"""
+    return {
+        "status": "نشط", 
+        "timestamp": datetime.now().isoformat(),
+        "version": "5.0.0",
+        "service": "Crypto Trading Bot"
+    }
+
+@app.get("/status")
+async def status():
+    """endpoint مفصل للحالة"""
+    return {
+        "status": "نشط - مراقبة إشارات التداول", 
+        "version": "5.0.0",
+        "timeframe": "5 دقائق",
+        "confidence_threshold": CONFIDENCE_THRESHOLD,
+        "data_source": "Binance مباشرة",
+        "supported_coins": list(SUPPORTED_COINS.keys()),
+        "uptime": time.time() - start_time,
+        "cache_size": len(data_fetcher.cache),
+        "cache_ttl": CACHE_TTL
     }
 
 @app.get("/signal/{coin}")
@@ -871,19 +890,6 @@ async def get_confidence_levels():
     return {
         "confidence_levels": CONFIDENCE_LEVELS,
         "current_threshold": CONFIDENCE_THRESHOLD
-    }
-
-@app.get("/status")
-async def status():
-    return {
-        "status": "نشط - مراقبة إشارات التداول", 
-        "version": "5.0.0",
-        "timeframe": "5 دقائق",
-        "confidence_threshold": CONFIDENCE_THRESHOLD,
-        "data_source": "Binance مباشرة",
-        "supported_coins": list(SUPPORTED_COINS.keys()),
-        "cache_size": len(data_fetcher.cache),
-        "cache_ttl": CACHE_TTL
     }
 
 @app.on_event("startup")
