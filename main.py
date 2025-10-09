@@ -45,7 +45,7 @@ app = FastAPI(title="Crypto Trading Signals Bot", version="2.0.0")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 CACHE_TTL = int(os.getenv("CACHE_TTL", 60))  # 1 دقيقة لتحديث أسرع
-CONFIDENCE_THRESHOLD = 0.35  # 65% عتبة ثقة أعلى
+CONFIDENCE_THRESHOLD = 0.30  # 65% عتبة ثقة أعلى
 
 SUPPORTED_COINS = {
     'btc': {'name': 'Bitcoin', 'coingecko_id': 'bitcoin', 'binance_symbol': 'BTCUSDT', 'symbol': 'BTC'},
