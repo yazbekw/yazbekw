@@ -52,9 +52,8 @@ SUPPORTED_COINS = {
     'eth': {'name': 'Ethereum', 'coingecko_id': 'ethereum', 'binance_symbol': 'ETHUSDT', 'symbol': 'ETH'},
     'bnb': {'name': 'Binance Coin', 'coingecko_id': 'binancecoin', 'binance_symbol': 'BNBUSDT', 'symbol': 'BNB'},
     'sol': {'name': 'Solana', 'coingecko_id': 'solana', 'binance_symbol': 'SOLUSDT', 'symbol': 'SOL'},
-    'ada': {'name': 'Cardano', 'coingecko_id': 'cardano', 'binance_symbol': 'ADAUSDT', 'symbol': 'ADA'},
-    'xrp': {'name': 'XRP', 'coingecko_id': 'ripple', 'binance_symbol': 'XRPUSDT', 'symbol': 'XRP'},
-    'dot': {'name': 'Polkadot', 'coingecko_id': 'polkadot', 'binance_symbol': 'DOTUSDT', 'symbol': 'DOT'}
+    'avax': {'name': 'Avalanche', 'coingecko_id': 'avalanche-2', 'binance_symbol': 'AVAXUSDT', 'symbol': 'AVAX'},
+    'ltc': {'name': 'Litecoin', 'coingecko_id': 'litecoin', 'binance_symbol': 'LTCUSDT', 'symbol': 'LTC'}
 }
 
 # تعريف مستويات الثقة مع تمييز واضح للإشارات
