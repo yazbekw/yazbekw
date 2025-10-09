@@ -764,8 +764,37 @@ class BinanceDataFetcher:
 data_fetcher = BinanceDataFetcher()
 notifier = TelegramNotifier(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
 
+async def health_check_task():
+    """مهمة الفحص الصحي لإبقاء البوت نشطاً"""
+    health_check_url = f"http://localhost:{os.getenv('PORT', 8000)}/status"
+    
+    while True:
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(health_check_url, timeout=10.0)
+                if response.status_code == 200:
+                    safe_log_info("✅ الفحص الصحي ناجح - البوت نشط", "system", "health_check")
+                else:
+                    safe_log_error(f"❌ الفحص الصحي فشل: {response.status_code}", "system", "health_check")
+        except Exception as e:
+            safe_log_error(f"❌ خطأ في الفحص الصحي: {e}", "system", "health_check")
+        
+        # فحص كل دقيقتين (أقل من وقت النوم على Render)
+        await asyncio.sleep(120)
+
+@app.get("/health")
+async def health_check():
+    """endpoint الفحص الصحي الأساسي"""
+    return {
+        "status": "نشط", 
+        "timestamp": datetime.now().isoformat(),
+        "version": "5.0.0",
+        "service": "Crypto Trading Bot"
+    }
+
 async def trading_signals_monitoring_task():
-    safe_log_info(f"بدء مراقبة إشارات التداول - إطار 5 دقائق - عتبة الثقة: {CONFIDENCE_THRESHOLD*100}%", "all", "monitoring")
+    """مراقبة إشارات التداول مع فحص صحي"""
+    safe_log_info(f"بدء مراقبة إشارات التداول - إطار 5 دقائق", "all", "monitoring")
     
     while True:
         try:
@@ -794,8 +823,17 @@ async def trading_signals_monitoring_task():
                     safe_log_error(f"خطأ في {coin_key}: {e}", coin_key, "monitoring")
                     continue
             
-            safe_log_info(f"اكتملت دورة مراقبة الإشارات - تم إرسال {signals_sent} إشارة", "all", "monitoring")
-            await asyncio.sleep(300)
+            safe_log_info(f"✅ اكتملت دورة مراقبة الإشارات - تم إرسال {signals_sent} إشارة", "all", "monitoring")
+            
+            # انتظار 5 دقائق مع فحوصات صحية متقطعة
+            for i in range(6):  # 6 × 50 ثانية = 5 دقائق
+                await asyncio.sleep(50)
+                # فحص صحي سريع كل 50 ثانية
+                try:
+                    async with httpx.AsyncClient() as client:
+                        await client.get(f"http://localhost:{os.getenv('PORT', 8000)}/health", timeout=5.0)
+                except:
+                    pass  # تجاهل الأخطاء في الفحص الداخلي
             
         except Exception as e:
             safe_log_error(f"خطأ في المهمة الرئيسية: {e}", "all", "monitoring")
@@ -851,8 +889,12 @@ async def status():
 @app.on_event("startup")
 async def startup_event():
     safe_log_info(f"بدء التشغيل - v5.0.0 - إشارات تداول 5 دقائق بتمييز واضح", "system", "startup")
+    
+    # تشغيل المهمتين معاً
     asyncio.create_task(trading_signals_monitoring_task())
-
+    asyncio.create_task(health_check_task())
+    
+    safe_log_info("✅ بدأت مهمة الفحص الصحي التلقائي", "system", "startup")
 @app.on_event("shutdown")
 async def shutdown_event():
     safe_log_info("إيقاف بوت التداول", "system", "shutdown")
