@@ -52,12 +52,12 @@ CONFIDENCE_THRESHOLD = 0.56
 
 # توزيع الأوزان الجديدة للمؤشرات
 INDICATOR_WEIGHTS = {
-    "RSI": 20,      # 20 نقطة
+    "RSI": 15,      # 20 نقطة
     "MACD": 20,     # 20 نقطة  
     "MOVING_AVERAGES": 15,  # 15 نقطة
-    "BOLLINGER_BANDS": 15,  # 15 نقطة
-    "STOCHASTIC": 15,       # 15 نقطة
-    "VOLUME": 15            # 15 نقطة
+    "BOLLINGER_BANDS": 20,  # 15 نقطة
+    "STOCHASTIC": 10,       # 15 نقطة
+    "VOLUME": 20            # 15 نقطة
 }
 
 # المجموع الكلي للنقاط
