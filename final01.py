@@ -74,10 +74,10 @@ SUPPORTED_COINS = {
 
 # تعريف مستويات الثقة مع تمييز واضح للإشارات
 CONFIDENCE_LEVELS = {
-    "NO_SIGNAL": {"min": 0.0, "max": 0.55, "emoji": "⚪", "color": "gray", "name": "لا إشارة", "send_alert": False},
-    "MEDIUM": {"min": 0.56, "max": 0.65, "emoji": "🟡", "color": "gold", "name": "متوسط", "send_alert": True},
-    "HIGH": {"min": 0.66, "max": 0.74, "emoji": "🟢", "color": "limegreen", "name": "قوي", "send_alert": True},
-    "VERY_HIGH": {"min": 0.75, "max": 1.00, "emoji": "💚", "color": "darkgreen", "name": "قوي جداً", "send_alert": True}
+    "NO_SIGNAL": {"min": 0.0, "max": 0.66, "emoji": "⚪", "color": "gray", "name": "لا إشارة", "send_alert": False},
+    "MEDIUM": {"min": 0.67, "max": 0.68, "emoji": "🟡", "color": "gold", "name": "متوسط", "send_alert": True},
+    "HIGH": {"min": 0.69, "max": 0.70, "emoji": "🟢", "color": "limegreen", "name": "قوي", "send_alert": True},
+    "VERY_HIGH": {"min": 0.71, "max": 1.00, "emoji": "💚", "color": "darkgreen", "name": "قوي جداً", "send_alert": True}
 }
 
 # ألوان وإيموجيات مخصصة لكل نوع إشارة
