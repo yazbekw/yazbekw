@@ -30,8 +30,8 @@ MAX_LEVERAGE = 20
 MAX_POSITION_SIZE = 1000  # USD
 MAX_DAILY_LOSS = 200      # USD
 
-# إعدادات Binance URLs
-FUTURES_URL = 'https://testnet.binancefuture.com' if TESTNET else 'https://fapi.binance.com'
+# إعدادات Binance UR
+FUTURES_URL = 'https://testnet.binancefuture.com/fapi/v1' if TESTNET else 'https://fapi.binance.com'
 
 # =============================================================================
 # نهاية الإعدادات الرئيسية
@@ -285,10 +285,17 @@ class AdvancedFuturesBot:
     async def send_telegram_message(self, update: Update, message: str):
         """إرسال رسالة مع معالجة الأخطاء"""
         try:
+            # قص الرسالة إذا كانت طويلة جداً
+            if len(message) > 4096:
+                message = message[:4090] + "..."
+        
             await update.message.reply_text(message, parse_mode='Markdown')
         except Exception as e:
-            logger.error(f"خطأ في إرسال الرسالة: {e}")
-    
+            try:
+                # إذا فشل Markdown، حاول بدون تنسيق
+                await update.message.reply_text(message, parse_mode=None)
+            except Exception as e2:
+                logger.error(f"خطأ في إرسال الرسالة: {e2}")
     # =========================================================================
     # معالجات الأوامر
     # =========================================================================
