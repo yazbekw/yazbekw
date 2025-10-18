@@ -31,7 +31,7 @@ MAX_POSITION_SIZE = 1000  # USD
 MAX_DAILY_LOSS = 200      # USD
 
 # إعدادات Binance UR
-FUTURES_URL = 'https://testnet.binancefuture.com/fapi/v1' if TESTNET else 'https://fapi.binance.com'
+FUTURES_URL = 'https://testnet.binancefuture.com' if TESTNET else 'https://fapi.binance.com'
 
 # =============================================================================
 # نهاية الإعدادات الرئيسية
