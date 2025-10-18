@@ -507,12 +507,15 @@ class TelegramNotifier:
             # بناء الرسالة
             message = self._build_alert_message(coin, timeframe, analysis, price)
             
+            # تنظيف الرسالة من أي أحخاص خاصة قد تسبب مشاكل
+            message = self._clean_message(message)
+            
             # إرسال الرسالة
             async with httpx.AsyncClient() as client:
                 payload = {
                     'chat_id': self.chat_id,
                     'text': message,
-                    'parse_mode': 'Markdown'
+                    'parse_mode': 'HTML'  # تغيير من Markdown إلى HTML
                 }
                 
                 response = await client.post(f"{self.base_url}/sendMessage", 
@@ -523,15 +526,27 @@ class TelegramNotifier:
                                 coin, "telegram")
                     return True
                 else:
-                    safe_log_error(f"فشل إرسال إشعار: {response.status_code}", coin, "telegram")
+                    # تسجيل تفاصيل الخطأ
+                    error_details = response.text if hasattr(response, 'text') else "لا توجد تفاصيل"
+                    safe_log_error(f"فشل إرسال إشعار: {response.status_code} - {error_details}", coin, "telegram")
                     return False
                     
         except Exception as e:
             safe_log_error(f"خطأ في إرسال الإشعار: {e}", coin, "telegram")
             return False
 
+    def _clean_message(self, message: str) -> str:
+        """تنظيف الرسالة من الأحرف التي تسبب مشاكل في تيليجرام"""
+        # إزالة أي أحخاص خاصة قد تسبب مشاكل في HTML
+        message = message.replace('&', '&amp;')
+        message = message.replace('<', '&lt;')
+        message = message.replace('>', '&gt;')
+        message = message.replace('"', '&quot;')
+        message = message.replace("'", '&#39;')
+        return message
+
     def _build_alert_message(self, coin: str, timeframe: str, analysis: Dict[str, Any], price: float) -> str:
-        """بناء رسالة التنبيه"""
+        """بناء رسالة التنبيه باستخدام HTML"""
         
         alert_level = analysis["alert_level"]
         strongest_signal = analysis["strongest_signal"]
@@ -540,43 +555,42 @@ class TelegramNotifier:
         
         # الرأس
         signal_emoji = "🔴" if strongest_signal == "top" else "🟢"
-        message = f"{signal_emoji} **تنبيه {coin.upper()} - إطار {timeframe}** {signal_emoji}\n\n"
+        message = f"{signal_emoji} <b>تنبيه {coin.upper()} - إطار {timeframe}</b> {signal_emoji}\n\n"
         
         # المعلومات الأساسية
-        message += f"📊 **نوع الإشارة:** {'قمة 🔴' if strongest_signal == 'top' else 'قاع 🟢'}\n"
-        message += f"🎯 **قوة الإشارة:** {alert_level['emoji']} **{strongest_score}/100**\n"
-        message += f"💰 **السعر الحالي:** ${price:,.2f}\n"
-        message += f"⏰ **التوقيت السوري:** {get_syria_time().strftime('%H:%M %d/%m/%Y')}\n\n"
+        message += f"📊 <b>نوع الإشارة:</b> {'قمة 🔴' if strongest_signal == 'top' else 'قاع 🟢'}\n"
+        message += f"🎯 <b>قوة الإشارة:</b> {alert_level['emoji']} <b>{strongest_score}/100</b>\n"
+        message += f"💰 <b>السعر الحالي:</b> ${price:,.2f}\n"
+        message += f"⏰ <b>التوقيت السوري:</b> {get_syria_time().strftime('%H:%M %d/%m/%Y')}\n\n"
         
         # المؤشرات
-        message += "📈 **المؤشرات:**\n"
+        message += "📈 <b>المؤشرات:</b>\n"
         
         if 'rsi' in indicators:
             rsi_emoji = "🔴" if indicators['rsi'] > 70 else "🟢" if indicators['rsi'] < 30 else "🟡"
-            message += f"• {rsi_emoji} RSI: **{indicators['rsi']}**\n"
+            message += f"• {rsi_emoji} RSI: <b>{indicators['rsi']}</b>\n"
         
         if 'stoch_k' in indicators:
             stoch_emoji = "🔴" if indicators['stoch_k'] > 80 else "🟢" if indicators['stoch_k'] < 20 else "🟡"
-            message += f"• {stoch_emoji} Stochastic: **K={indicators['stoch_k']}, D={indicators['stoch_d']}**\n"
+            message += f"• {stoch_emoji} Stochastic: <b>K={indicators['stoch_k']}, D={indicators['stoch_d']}</b>\n"
         
         if 'macd_histogram' in indicators:
             macd_emoji = "🟢" if indicators['macd_histogram'] > 0 else "🔴"
-            message += f"• {macd_emoji} MACD Hist: **{indicators['macd_histogram']:.4f}**\n"
+            message += f"• {macd_emoji} MACD Hist: <b>{indicators['macd_histogram']:.4f}</b>\n"
         
         if 'candle_pattern' in indicators and indicators['candle_pattern']['pattern'] != 'none':
-            message += f"• 🕯️ نمط الشموع: **{indicators['candle_pattern']['description']}**\n"
+            message += f"• 🕯️ نمط الشموع: <b>{indicators['candle_pattern']['description']}</b>\n"
         
         if 'volume_trend' in indicators:
             volume_emoji = "📈" if "rising" in indicators['volume_trend']['trend'] else "📉"
-            message += f"• {volume_emoji} الحجم: **{indicators['volume_trend']['trend']}**\n"
+            message += f"• {volume_emoji} الحجم: <b>{indicators['volume_trend']['trend']}</b>\n"
         
         if 'session_weight' in indicators:
-            message += f"• ⚖️ وزن الجلسة: **{indicators['session_weight']*100}%**\n"
+            message += f"• ⚖️ وزن الجلسة: <b>{indicators['session_weight']*100}%</b>\n"
         
-        message += f"\n⚡ **البوت:** ماسح القمم والقيعان v1.0"
+        message += f"\n⚡ <b>البوت:</b> ماسح القمم والقيعان v1.0"
         
         return message
-
 class BinanceDataFetcher:
     """جلب البيانات من Binance"""
     
