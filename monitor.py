@@ -26,7 +26,7 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 PORT = int(os.getenv("PORT", 8000))
 
 # إعدادات التداول
-SCAN_INTERVAL = 900  # 15 دقيقة بين كل فحص (بالثواني)
+SCAN_INTERVAL = 180  # 15 دقيقة بين كل فحص (بالثواني)
 HEARTBEAT_INTERVAL = 900  # 15 دقيقة بين كل نبضة (بالثواني)
 CONFIDENCE_THRESHOLD = 40  # الحد الأدنى للنقاط لإرسال الإشعار
 
