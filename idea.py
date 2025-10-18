@@ -975,4 +975,70 @@ async def test_telegram():
 🧪 *اختبار البوت - ماسح القمم والقيعان*
 
 ✅ *الحالة:* البوت يعمل بشكل صحيح
-🕒 *الوقت:* {
+🕒 *الوقت:* {}
+🌍 *الجلسة:* {} {}
+⚡ *الإصدار:* 2.0.0
+
+📊 *العملات المدعومة:* {}
+⏰ *الأطر الزمنية:* {}
+
+🔧 *الإعدادات:*
+• عتبة الثقة: {} نقطة
+• فاصل المسح: {} ثانية
+• التوقيت: سوريا (GMT+3)
+
+🎯 *الوظيفة:* كشف القمم والقيعان تلقائياً
+        """.format(
+            get_syria_time().strftime('%H:%M %d/%m/%Y'),
+            get_current_session()["emoji"],
+            get_current_session()["name"],
+            ", ".join(SUPPORTED_COINS.keys()),
+            ", ".join(TIMEFRAMES),
+            CONFIDENCE_THRESHOLD,
+            SCAN_INTERVAL
+        )
+
+        async with httpx.AsyncClient() as client:
+            payload = {
+                'chat_id': TELEGRAM_CHAT_ID,
+                'text': test_message,
+                'parse_mode': 'Markdown'
+            }
+            
+            response = await client.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", 
+                                       json=payload, timeout=10.0)
+            
+            if response.status_code == 200:
+                return {"status": "success", "message": "تم إرسال رسالة الاختبار بنجاح"}
+            else:
+                return {"status": "error", "code": response.status_code, "details": response.text}
+                
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+# وقت بدء التشغيل
+start_time = time.time()
+
+@app.on_event("startup")
+async def startup_event():
+    safe_log_info("بدء تشغيل ماسح القمم والقيعان الإصدار 2.0", "system", "startup")
+    safe_log_info(f"العملات المدعومة: {list(SUPPORTED_COINS.keys())}", "system", "config")
+    safe_log_info(f"الأطر الزمنية: {TIMEFRAMES}", "system", "config")
+    safe_log_info(f"فاصل المسح: {SCAN_INTERVAL} ثانية", "system", "config")
+    safe_log_info(f"حد الثقة: {CONFIDENCE_THRESHOLD} نقطة", "system", "config")
+    safe_log_info(f"التوقيت: سوريا (GMT+3)", "system", "config")
+    
+    # بدء المهام
+    asyncio.create_task(market_scanner_task())
+    asyncio.create_task(health_check_task())
+    
+    safe_log_info("✅ بدأت مهام المسح والفحص الصحي", "system", "startup")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    safe_log_info("إيقاف ماسح السوق", "system", "shutdown")
+    await data_fetcher.close()
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=PORT)
