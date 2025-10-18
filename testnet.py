@@ -1088,7 +1088,7 @@ def main():
         bot.run()
         
     except Exception as e:
-        logger.error(f"❌ خطأ في تشغيل البوت: {e}")if __name__ == "__main__":
+        logger.error(f"❌ خطأ في تشغيل البوت: {e}")
 
 if __name__ == "__main__":
     main()
