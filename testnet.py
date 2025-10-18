@@ -1042,8 +1042,24 @@ class AdvancedFuturesBot:
 # التشغيل الرئيسي
 # =============================================================================
 
+import os
+from threading import Thread
+from flask import Flask
+
+# إنشاء تطبيق Flask بسيط لفتح منفذ
+app = Flask(__name__)
+
+@app.route('/')
+def health_check():
+    return '🤖 Bot is running!'
+
+def run_flask_app():
+    """تشغيل Flask على منفذ للتحقق من الصحة"""
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port, debug=False)
+
 def main():
-    """الدالة الرئيسية"""
+    """الدالة الرئيسية - معدلة"""
     
     # التحقق من وجود المفاتيح
     if BINANCE_API_KEY == 'your_testnet_api_key_here':
@@ -1055,6 +1071,12 @@ def main():
         return
     
     try:
+        # بدء Flask في thread منفصل
+        flask_thread = Thread(target=run_flask_app, daemon=True)
+        flask_thread.start()
+        
+        print(f"🚀 بدء تشغيل البوت على المنفذ {os.environ.get('PORT', 10000)}")
+        
         # إنشاء وتشغيل البوت
         bot = AdvancedFuturesBot(
             telegram_token=TELEGRAM_TOKEN,
@@ -1066,7 +1088,7 @@ def main():
         bot.run()
         
     except Exception as e:
-        logger.error(f"❌ خطأ في تشغيل البوت: {e}")
+        logger.error(f"❌ خطأ في تشغيل البوت: {e}")if __name__ == "__main__":
 
 if __name__ == "__main__":
     main()
