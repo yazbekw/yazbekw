@@ -42,9 +42,9 @@ SYRIA_TZ = pytz.timezone('Asia/Damascus')
 
 # أوقات الجلسات مع التوقيت السوري
 TRADING_SESSIONS = {
-    "asian": {"start": 0, "end": 8, "weight": 0.7},    # 03:00-11:00 توقيت سوريا
-    "european": {"start": 8, "end": 16, "weight": 1.0}, # 11:00-19:00 توقيت سوريا
-    "american": {"start": 16, "end": 24, "weight": 0.8} # 19:00-03:00 توقيت سوريا
+    "asian": {"start": 0, "end": 8, "weight": 0.7, "name": "آسيوية", "emoji": "🌏"},
+    "european": {"start": 8, "end": 16, "weight": 1.0, "name": "أوروبية", "emoji": "🌍"}, 
+    "american": {"start": 16, "end": 24, "weight": 0.8, "name": "أمريكية", "emoji": "🌎"}
 }
 
 # أوزان المؤشرات (من 100 نقطة)
@@ -57,10 +57,17 @@ INDICATOR_WEIGHTS = {
 
 # مستويات التنبيه
 ALERT_LEVELS = {
-    "LOW": {"min": 0, "max": 50, "emoji": "⚪", "send_alert": False},
-    "MEDIUM": {"min": 51, "max": 70, "emoji": "🟡", "send_alert": True},
-    "HIGH": {"min": 71, "max": 85, "emoji": "🟠", "send_alert": True},
-    "STRONG": {"min": 86, "max": 100, "emoji": "🔴", "send_alert": True}
+    "LOW": {"min": 0, "max": 50, "emoji": "⚪", "send_alert": False, "color": "gray"},
+    "MEDIUM": {"min": 51, "max": 70, "emoji": "🟡", "send_alert": True, "color": "gold"},
+    "HIGH": {"min": 71, "max": 85, "emoji": "🟠", "send_alert": True, "color": "darkorange"},
+    "STRONG": {"min": 86, "max": 100, "emoji": "🔴", "send_alert": True, "color": "red"}
+}
+
+# ألوان التصميم
+COLORS = {
+    "top": {"primary": "#FF4444", "secondary": "#FFCCCB", "bg": "#FFF5F5"},
+    "bottom": {"primary": "#00C851", "secondary": "#C8F7C5", "bg": "#F5FFF5"},
+    "neutral": {"primary": "#4A90E2", "secondary": "#D1E8FF", "bg": "#F5F9FF"}
 }
 
 # =============================================================================
@@ -91,7 +98,7 @@ logger.propagate = False
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("asyncio").setLevel(logging.WARNING)
 
-app = FastAPI(title="Crypto Top/Bottom Scanner", version="1.0.0")
+app = FastAPI(title="Crypto Top/Bottom Scanner", version="2.0.0")
 
 def safe_log_info(message: str, coin: str = "system", source: str = "app"):
     try:
@@ -109,16 +116,20 @@ def get_syria_time():
     """الحصول على التوقيت السوري الحالي"""
     return datetime.now(SYRIA_TZ)
 
-def get_session_weight():
-    """الحصول على وزن الجلسة الحالية حسب التوقيت السوري"""
+def get_current_session():
+    """الحصول على الجلسة الحالية حسب التوقيت السوري"""
     current_time = get_syria_time()
     current_hour = current_time.hour
     
     for session, config in TRADING_SESSIONS.items():
         if config["start"] <= current_hour < config["end"]:
-            return config["weight"]
+            return config
     
-    return 0.7  # افتراضي
+    return TRADING_SESSIONS["asian"]
+
+def get_session_weight():
+    """الحصول على وزن الجلسة الحالية حسب التوقيت السوري"""
+    return get_current_session()["weight"]
 
 def get_alert_level(score: int) -> Dict[str, Any]:
     """تحديد مستوى التنبيه بناء على النقاط"""
@@ -128,6 +139,7 @@ def get_alert_level(score: int) -> Dict[str, Any]:
                 "level": level,
                 "emoji": config["emoji"],
                 "send_alert": config["send_alert"],
+                "color": config["color"],
                 "min": config["min"],
                 "max": config["max"]
             }
@@ -210,7 +222,7 @@ class AdvancedMarketAnalyzer:
     def detect_candle_pattern(prices: List[float], highs: List[float], lows: List[float]) -> Dict[str, Any]:
         """الكشف عن أنماط الشموع الانعكاسية"""
         if len(prices) < 3:
-            return {"pattern": "none", "strength": 0, "description": "لا توجد بيانات كافية"}
+            return {"pattern": "none", "strength": 0, "description": "لا توجد بيانات كافية", "direction": "none"}
         
         current_close = prices[-1]
         current_high = highs[-1]
@@ -220,38 +232,40 @@ class AdvancedMarketAnalyzer:
         prev_low = lows[-2]
         
         # حساب جسم الشمعة وذيلها
-        current_body = abs(current_close - prices[-3])  # السعر الافتتاح (الشمعة السابقة close)
-        current_upper_wick = current_high - max(current_close, prices[-3])
-        current_lower_wick = min(current_close, prices[-3]) - current_low
+        current_body = abs(current_close - prev_close)
+        current_upper_wick = current_high - max(current_close, prev_close)
+        current_lower_wick = min(current_close, prev_close) - current_low
         
         # نمط المطرقة (Hammer) - إشارة قاع
         is_hammer = (current_lower_wick > 2 * current_body and 
-                    current_upper_wick < current_body * 0.5)
+                    current_upper_wick < current_body * 0.5 and
+                    current_close > prev_close)
         
         # نمط النجم الساقط (Shooting Star) - إشارة قمة
         is_shooting_star = (current_upper_wick > 2 * current_body and 
-                           current_lower_wick < current_body * 0.5)
+                           current_lower_wick < current_body * 0.5 and
+                           current_close < prev_close)
         
         # نمط الابتلاع (Engulfing)
-        is_bullish_engulfing = (current_close > prev_high and prices[-3] < prev_low)
-        is_bearish_engulfing = (current_close < prev_low and prices[-3] > prev_high)
+        is_bullish_engulfing = (current_close > prev_high and prev_close < prev_low)
+        is_bearish_engulfing = (current_close < prev_low and prev_close > prev_high)
         
         if is_hammer:
-            return {"pattern": "hammer", "strength": 8, "description": "مطرقة - إشارة قاع", "direction": "bottom"}
+            return {"pattern": "hammer", "strength": 8, "description": "🔨 مطرقة - إشارة قاع قوية", "direction": "bottom"}
         elif is_shooting_star:
-            return {"pattern": "shooting_star", "strength": 8, "description": "نجم ساقط - إشارة قمة", "direction": "top"}
+            return {"pattern": "shooting_star", "strength": 8, "description": "💫 نجم ساقط - إشارة قمة قوية", "direction": "top"}
         elif is_bullish_engulfing:
-            return {"pattern": "bullish_engulfing", "strength": 7, "description": "ابتلاع صاعد - إشارة قاع", "direction": "bottom"}
+            return {"pattern": "bullish_engulfing", "strength": 7, "description": "🟢 ابتلاع صاعد - إشارة قاع", "direction": "bottom"}
         elif is_bearish_engulfing:
-            return {"pattern": "bearish_engulfing", "strength": 7, "description": "ابتلاع هابط - إشارة قمة", "direction": "top"}
+            return {"pattern": "bearish_engulfing", "strength": 7, "description": "🔴 ابتلاع هابط - إشارة قمة", "direction": "top"}
         else:
-            return {"pattern": "none", "strength": 0, "description": "لا يوجد نمط واضح", "direction": "none"}
+            return {"pattern": "none", "strength": 0, "description": "⚪ لا يوجد نمط واضح", "direction": "none"}
 
     @staticmethod
     def analyze_support_resistance(prices: List[float]) -> Dict[str, Any]:
         """تحليل مستويات الدعم والمقاومة"""
         if len(prices) < 20:
-            return {"support": 0, "resistance": 0, "strength": 0}
+            return {"support": 0, "resistance": 0, "strength": 0, "direction": "none"}
         
         # استخدام أدنى وأعلى 20 شمعة
         recent_lows = min(prices[-20:])
@@ -263,6 +277,8 @@ class AdvancedMarketAnalyzer:
         distance_to_resistance = abs(current_price - recent_highs) / current_price
         
         strength = 0
+        direction = "none"
+        
         if distance_to_support < 0.02:  # within 2%
             strength = 8
             direction = "bottom"
@@ -285,7 +301,7 @@ class AdvancedMarketAnalyzer:
     def analyze_volume_trend(volumes: List[float]) -> Dict[str, Any]:
         """تحليل اتجاه الحجم"""
         if len(volumes) < 10:
-            return {"trend": "stable", "strength": 0}
+            return {"trend": "stable", "strength": 0, "description": "⚪ حجم مستقر"}
         
         recent_volume = np.mean(volumes[-5:])
         previous_volume = np.mean(volumes[-10:-5])
@@ -293,21 +309,21 @@ class AdvancedMarketAnalyzer:
         volume_ratio = recent_volume / previous_volume
         
         if volume_ratio > 1.5:
-            return {"trend": "strong_rising", "strength": 8}
+            return {"trend": "strong_rising", "strength": 8, "description": "📈 حجم متزايد بقوة"}
         elif volume_ratio > 1.2:
-            return {"trend": "rising", "strength": 6}
+            return {"trend": "rising", "strength": 6, "description": "📈 حجم متزايد"}
         elif volume_ratio < 0.7:
-            return {"trend": "strong_falling", "strength": 8}
+            return {"trend": "strong_falling", "strength": 8, "description": "📉 حجم متراجع بقوة"}
         elif volume_ratio < 0.9:
-            return {"trend": "falling", "strength": 6}
+            return {"trend": "falling", "strength": 6, "description": "📉 حجم متراجع"}
         else:
-            return {"trend": "stable", "strength": 3}
+            return {"trend": "stable", "strength": 3, "description": "⚪ حجم مستقر"}
 
     @staticmethod
-    def calculate_fibonacci_levels(prices: List[float]) -> Dict[str, float]:
+    def calculate_fibonacci_levels(prices: List[float]) -> Dict[str, Any]:
         """حساب مستويات فيبوناتشي"""
         if len(prices) < 20:
-            return {}
+            return {"closest_level": None, "distance": None}
         
         high = max(prices[-20:])
         low = min(prices[-20:])
@@ -336,7 +352,6 @@ class AdvancedMarketAnalyzer:
                 closest_level = level_name
         
         return {
-            'levels': levels,
             'closest_level': closest_level,
             'distance': min_distance if closest_level else None
         }
@@ -484,17 +499,16 @@ class AdvancedMarketAnalyzer:
         }
 
 class TelegramNotifier:
-    """إشعارات التليجرام للإشارات القوية"""
+    """إشعارات التليجرام مع صور الشارت"""
     
     def __init__(self, token: str, chat_id: str):
         self.token = token
         self.chat_id = chat_id
         self.base_url = f"https://api.telegram.org/bot{token}"
-        self.analyzer = AdvancedMarketAnalyzer()
 
     async def send_alert(self, coin: str, timeframe: str, analysis: Dict[str, Any], 
-                        price: float, prices: List[float]) -> bool:
-        """إرسال تنبيه لإشارة قوية"""
+                        price: float, prices: List[float], highs: List[float], lows: List[float]) -> bool:
+        """إرسال تنبيه مع صورة الشارت"""
         
         alert_level = analysis["alert_level"]
         strongest_signal = analysis["strongest_signal"]
@@ -504,93 +518,236 @@ class TelegramNotifier:
             return False
         
         try:
-            # بناء الرسالة
-            message = self._build_alert_message(coin, timeframe, analysis, price)
+            # بناء الرسالة النصية
+            message = self._build_beautiful_message(coin, timeframe, analysis, price)
             
-            # تنظيف الرسالة من أي أحخاص خاصة قد تسبب مشاكل
-            message = self._clean_message(message)
+            # إنشاء صورة الشارت
+            chart_image = self._create_beautiful_chart(coin, timeframe, prices, highs, lows, analysis, price)
             
-            # إرسال الرسالة
-            async with httpx.AsyncClient() as client:
-                payload = {
-                    'chat_id': self.chat_id,
-                    'text': message,
-                    'parse_mode': 'HTML'  # تغيير من Markdown إلى HTML
-                }
-                
-                response = await client.post(f"{self.base_url}/sendMessage", 
-                                           json=payload, timeout=10.0)
-                
-                if response.status_code == 200:
-                    safe_log_info(f"تم إرسال إشعار لـ {coin} ({timeframe}) - {strongest_signal} - {strongest_score} نقطة", 
+            if chart_image:
+                # إرسال الصورة مع التسمية التوضيحية
+                success = await self._send_photo_with_caption(message, chart_image)
+                if success:
+                    safe_log_info(f"📨 تم إرسال إشعار بصورة لـ {coin} ({timeframe}) - {strongest_signal} - {strongest_score} نقطة", 
                                 coin, "telegram")
                     return True
-                else:
-                    # تسجيل تفاصيل الخطأ
-                    error_details = response.text if hasattr(response, 'text') else "لا توجد تفاصيل"
-                    safe_log_error(f"فشل إرسال إشعار: {response.status_code} - {error_details}", coin, "telegram")
-                    return False
+            else:
+                # إرسال رسالة نصية فقط إذا فشل إنشاء الصورة
+                success = await self._send_text_message(message)
+                if success:
+                    safe_log_info(f"📨 تم إرسال إشعار نصي لـ {coin} ({timeframe}) - {strongest_signal} - {strongest_score} نقطة", 
+                                coin, "telegram")
+                    return True
+            
+            return False
                     
         except Exception as e:
             safe_log_error(f"خطأ في إرسال الإشعار: {e}", coin, "telegram")
             return False
 
-    def _clean_message(self, message: str) -> str:
-        """تنظيف الرسالة من الأحرف التي تسبب مشاكل في تيليجرام"""
-        # إزالة أي أحخاص خاصة قد تسبب مشاكل في HTML
-        message = message.replace('&', '&amp;')
-        message = message.replace('<', '&lt;')
-        message = message.replace('>', '&gt;')
-        message = message.replace('"', '&quot;')
-        message = message.replace("'", '&#39;')
-        return message
-
-    def _build_alert_message(self, coin: str, timeframe: str, analysis: Dict[str, Any], price: float) -> str:
-        """بناء رسالة التنبيه باستخدام HTML"""
+    def _build_beautiful_message(self, coin: str, timeframe: str, analysis: Dict[str, Any], price: float) -> str:
+        """بناء رسالة جميلة ومفصلة"""
         
         alert_level = analysis["alert_level"]
         strongest_signal = analysis["strongest_signal"]
         strongest_score = analysis["strongest_score"]
         indicators = analysis["indicators"]
+        current_session = get_current_session()
         
-        # الرأس
-        signal_emoji = "🔴" if strongest_signal == "top" else "🟢"
-        message = f"{signal_emoji} <b>تنبيه {coin.upper()} - إطار {timeframe}</b> {signal_emoji}\n\n"
+        # الرأس حسب نوع الإشارة
+        if strongest_signal == "top":
+            signal_emoji = "🔴"
+            signal_text = "قمة سعرية"
+            signal_color = "🔴"
+        else:
+            signal_emoji = "🟢" 
+            signal_text = "قاع سعري"
+            signal_color = "🟢"
         
-        # المعلومات الأساسية
-        message += f"📊 <b>نوع الإشارة:</b> {'قمة 🔴' if strongest_signal == 'top' else 'قاع 🟢'}\n"
-        message += f"🎯 <b>قوة الإشارة:</b> {alert_level['emoji']} <b>{strongest_score}/100</b>\n"
-        message += f"💰 <b>السعر الحالي:</b> ${price:,.2f}\n"
-        message += f"⏰ <b>التوقيت السوري:</b> {get_syria_time().strftime('%H:%M %d/%m/%Y')}\n\n"
+        message = f"{signal_emoji} *{signal_text} - {coin.upper()}* {signal_emoji}\n"
+        message += "═" * 40 + "\n\n"
         
-        # المؤشرات
-        message += "📈 <b>المؤشرات:</b>\n"
+        # معلومات السعر والإطار
+        message += f"💰 *السعر الحالي:* `${price:,.2f}`\n"
+        message += f"⏰ *الإطار الزمني:* `{timeframe}`\n"
+        message += f"🕒 *التوقيت السوري:* `{get_syria_time().strftime('%H:%M %d/%m/%Y')}`\n\n"
+        
+        # قوة الإشارة
+        message += f"🎯 *قوة الإشارة:* {alert_level['emoji']} *{strongest_score}/100*\n"
+        message += f"📊 *مستوى الثقة:* `{alert_level['level']}`\n\n"
+        
+        # الجلسة الحالية
+        message += f"🌍 *الجلسة:* {current_session['emoji']} {current_session['name']}\n"
+        message += f"⚖️ *وزن الجلسة:* `{current_session['weight']*100}%`\n\n"
+        
+        # المؤشرات الفنية
+        message += "📈 *المؤشرات الفنية:*\n"
         
         if 'rsi' in indicators:
             rsi_emoji = "🔴" if indicators['rsi'] > 70 else "🟢" if indicators['rsi'] < 30 else "🟡"
-            message += f"• {rsi_emoji} RSI: <b>{indicators['rsi']}</b>\n"
+            rsi_status = "تشبع شرائي" if indicators['rsi'] > 70 else "تشبع بيعي" if indicators['rsi'] < 30 else "محايد"
+            message += f"• {rsi_emoji} *RSI:* `{indicators['rsi']}` ({rsi_status})\n"
         
         if 'stoch_k' in indicators:
             stoch_emoji = "🔴" if indicators['stoch_k'] > 80 else "🟢" if indicators['stoch_k'] < 20 else "🟡"
-            message += f"• {stoch_emoji} Stochastic: <b>K={indicators['stoch_k']}, D={indicators['stoch_d']}</b>\n"
+            stoch_status = "تشبع شرائي" if indicators['stoch_k'] > 80 else "تشبع بيعي" if indicators['stoch_k'] < 20 else "محايد"
+            message += f"• {stoch_emoji} *Stochastic:* `K={indicators['stoch_k']}, D={indicators['stoch_d']}` ({stoch_status})\n"
         
         if 'macd_histogram' in indicators:
             macd_emoji = "🟢" if indicators['macd_histogram'] > 0 else "🔴"
-            message += f"• {macd_emoji} MACD Hist: <b>{indicators['macd_histogram']:.4f}</b>\n"
+            macd_trend = "صاعد" if indicators['macd_histogram'] > 0 else "هابط"
+            message += f"• {macd_emoji} *MACD Hist:* `{indicators['macd_histogram']:.4f}` ({macd_trend})\n"
         
         if 'candle_pattern' in indicators and indicators['candle_pattern']['pattern'] != 'none':
-            message += f"• 🕯️ نمط الشموع: <b>{indicators['candle_pattern']['description']}</b>\n"
+            message += f"• 🕯️ *نمط الشموع:* {indicators['candle_pattern']['description']}\n"
         
         if 'volume_trend' in indicators:
-            volume_emoji = "📈" if "rising" in indicators['volume_trend']['trend'] else "📉"
-            message += f"• {volume_emoji} الحجم: <b>{indicators['volume_trend']['trend']}</b>\n"
+            message += f"• 🔊 *الحجم:* {indicators['volume_trend']['description']}\n"
         
-        if 'session_weight' in indicators:
-            message += f"• ⚖️ وزن الجلسة: <b>{indicators['session_weight']*100}%</b>\n"
+        if 'fibonacci' in indicators and indicators['fibonacci'].get('closest_level'):
+            fib_level = indicators['fibonacci']['closest_level']
+            fib_emoji = "🔴" if fib_level in ['0.618', '0.786', '1.0'] else "🟢"
+            message += f"• {fib_emoji} *فيبوناتشي:* `مستوى {fib_level}`\n"
         
-        message += f"\n⚡ <b>البوت:</b> ماسح القمم والقيعان v1.0"
+        message += "\n"
+        
+        # التوصية
+        if strongest_signal == "top":
+            recommendation = "💡 *التوصية:* مراقبة فرص البيع والربح"
+        else:
+            recommendation = "💡 *التوصية:* مراقبة فرص الشراء والدخول"
+        
+        message += f"{recommendation}\n\n"
+        
+        # التوقيع
+        message += "─" * 30 + "\n"
+        message += f"⚡ *ماسح القمم والقيعان v2.0*"
         
         return message
+
+    def _create_beautiful_chart(self, coin: str, timeframe: str, prices: List[float], 
+                              highs: List[float], lows: List[float], analysis: Dict[str, Any], 
+                              current_price: float) -> Optional[str]:
+        """إنشاء رسم بياني جميل"""
+        try:
+            if len(prices) < 10:
+                return None
+            
+            # إعداد الألوان حسب نوع الإشارة
+            if analysis["strongest_signal"] == "top":
+                colors = COLORS["top"]
+            else:
+                colors = COLORS["bottom"]
+            
+            # إنشاء الشكل
+            plt.figure(figsize=(12, 8))
+            
+            # خلفية جميلة
+            plt.gca().set_facecolor(colors["bg"])
+            plt.grid(True, alpha=0.3, linestyle='--')
+            
+            # تحديد عدد البيانات للعرض (آخر 50 نقطة)
+            display_prices = prices[-50:] if len(prices) > 50 else prices
+            x_values = list(range(len(display_prices)))
+            
+            # رسم السعر
+            plt.plot(x_values, display_prices, color=colors["primary"], linewidth=3, 
+                    label=f'سعر {coin.upper()}', alpha=0.8, marker='o', markersize=3)
+            
+            # إضافة نقطة السعر الحالي
+            plt.scatter([x_values[-1]], [display_prices[-1]], color=colors["primary"], 
+                      s=200, zorder=5, edgecolors='white', linewidth=2)
+            
+            # إضافة خطوط الدعم والمقاومة إذا كانت موجودة
+            if 'support_resistance' in analysis["indicators"]:
+                sr_data = analysis["indicators"]["support_resistance"]
+                if sr_data["support"] > 0:
+                    plt.axhline(y=sr_data["support"], color='green', linestyle='--', 
+                              alpha=0.7, label=f'دعم: ${sr_data["support"]:,.2f}')
+                if sr_data["resistance"] > 0:
+                    plt.axhline(y=sr_data["resistance"], color='red', linestyle='--', 
+                              alpha=0.7, label=f'مقاومة: ${sr_data["resistance"]:,.2f}')
+            
+            # تخصيص المظهر
+            plt.title(f'{coin.upper()} - إطار {timeframe}\nإشارة {analysis["strongest_signal"]} - قوة {analysis["strongest_score"]}/100', 
+                     fontsize=16, fontweight='bold', color=colors["primary"], pad=20)
+            
+            plt.xlabel('الوقت', fontsize=12)
+            plt.ylabel('السعر (USDT)', fontsize=12)
+            plt.legend()
+            
+            # تحسين المظهر
+            plt.tight_layout()
+            
+            # حفظ الصورة
+            buffer = BytesIO()
+            plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight',
+                       facecolor=colors["bg"], edgecolor='none')
+            buffer.seek(0)
+            plt.close()
+            
+            return base64.b64encode(buffer.read()).decode('utf-8')
+            
+        except Exception as e:
+            safe_log_error(f"خطأ في إنشاء الرسم البياني: {e}", coin, "chart")
+            return None
+
+    async def _send_photo_with_caption(self, caption: str, photo_base64: str) -> bool:
+        """إرسال صورة مع تسمية توضيحية"""
+        try:
+            # تنظيف التسمية التوضيحية
+            caption = self._clean_message(caption)
+            
+            if len(caption) > 1024:
+                caption = caption[:1020] + "..."
+                
+            payload = {
+                'chat_id': self.chat_id,
+                'caption': caption,
+                'parse_mode': 'Markdown'
+            }
+            
+            files = {
+                'photo': ('chart.png', base64.b64decode(photo_base64), 'image/png')
+            }
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.post(f"{self.base_url}/sendPhoto", 
+                                           data=payload, files=files, timeout=15.0)
+                
+            return response.status_code == 200
+            
+        except Exception as e:
+            safe_log_error(f"خطأ في إرسال الصورة: {e}", "system", "telegram")
+            return False
+
+    async def _send_text_message(self, message: str) -> bool:
+        """إرسال رسالة نصية فقط"""
+        try:
+            message = self._clean_message(message)
+            
+            payload = {
+                'chat_id': self.chat_id,
+                'text': message,
+                'parse_mode': 'Markdown'
+            }
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.post(f"{self.base_url}/sendMessage", 
+                                           json=payload, timeout=10.0)
+                
+            return response.status_code == 200
+            
+        except Exception as e:
+            safe_log_error(f"خطأ في إرسال الرسالة النصية: {e}", "system", "telegram")
+            return False
+
+    def _clean_message(self, message: str) -> str:
+        """تنظيف الرسالة من الأحرف الخاصة"""
+        # إزالة أي أحخاص قد تسبب مشاكل في Markdown
+        clean_message = message.replace('_', '\\_').replace('*', '\\*').replace('`', '\\`')
+        return clean_message
+
 class BinanceDataFetcher:
     """جلب البيانات من Binance"""
     
@@ -695,7 +852,9 @@ async def market_scanner_task():
     while True:
         try:
             syria_time = get_syria_time()
-            safe_log_info(f"بدء دورة المسح - التوقيت السوري: {syria_time.strftime('%H:%M %d/%m/%Y')}", 
+            current_session = get_current_session()
+            
+            safe_log_info(f"بدء دورة المسح - التوقيت السوري: {syria_time.strftime('%H:%M %d/%m/%Y')} - الجلسة: {current_session['name']}", 
                          "system", "scanner")
             
             alerts_sent = 0
@@ -709,13 +868,14 @@ async def market_scanner_task():
                         analysis = data['analysis']
                         
                         # إرسال التنبيه إذا كانت الإشارة قوية
-                        if analysis["alert_level"]["send_alert"]:
+                        if analysis["alert_level"]["send_alert"] and analysis["strongest_score"] >= CONFIDENCE_THRESHOLD:
                             success = await notifier.send_alert(
-                                coin_key, timeframe, analysis, data['price'], data['prices']
+                                coin_key, timeframe, analysis, data['price'], 
+                                data['prices'], data['highs'], data['lows']
                             )
                             if success:
                                 alerts_sent += 1
-                                await asyncio.sleep(2)  # فواصل بين الإشعارات
+                                await asyncio.sleep(3)  # فواصل بين الإشعارات
                         
                         await asyncio.sleep(1)  # فواصل بين الطلبات
                         
@@ -741,8 +901,9 @@ async def health_check_task():
             # فحص بسيط للذاكرة والأداء
             current_time = time.time()
             cache_size = len(data_fetcher.cache)
+            current_session = get_current_session()
             
-            safe_log_info(f"الفحص الصحي - الكاش: {cache_size} - الوقت: {current_time}", 
+            safe_log_info(f"الفحص الصحي - الكاش: {cache_size} - الجلسة: {current_session['name']} - الوزن: {current_session['weight']}", 
                          "system", "health")
             
             await asyncio.sleep(300)  # فحص كل 5 دقائق
@@ -756,21 +917,25 @@ async def health_check_task():
 async def root():
     return {
         "message": "ماسح القمم والقيعان للكريبتو",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "supported_coins": list(SUPPORTED_COINS.keys()),
         "timeframes": TIMEFRAMES,
         "scan_interval": f"{SCAN_INTERVAL} ثانية",
         "confidence_threshold": CONFIDENCE_THRESHOLD,
-        "syria_time": get_syria_time().strftime('%H:%M %d/%m/%Y')
+        "syria_time": get_syria_time().strftime('%H:%M %d/%m/%Y'),
+        "current_session": get_current_session()["name"]
     }
 
 @app.get("/health")
 async def health_check():
+    current_session = get_current_session()
     return {
         "status": "نشط",
         "syria_time": get_syria_time().strftime('%H:%M %d/%m/%Y'),
-        "session_weight": get_session_weight(),
-        "cache_size": len(data_fetcher.cache)
+        "current_session": current_session["name"],
+        "session_weight": current_session["weight"],
+        "cache_size": len(data_fetcher.cache),
+        "uptime": time.time() - start_time
     }
 
 @app.get("/scan/{coin}")
@@ -788,38 +953,26 @@ async def scan_coin(coin: str, timeframe: str = "15m"):
         "timeframe": timeframe,
         "price": data['price'],
         "analysis": data['analysis'],
-        "syria_time": get_syria_time().strftime('%H:%M %d/%m/%Y')
+        "syria_time": get_syria_time().strftime('%H:%M %d/%m/%Y'),
+        "current_session": get_current_session()["name"]
     }
 
 @app.get("/session-info")
 async def get_session_info():
-    current_time = get_syria_time()
-    current_weight = get_session_weight()
-    
+    current_session = get_current_session()
     return {
-        "syria_time": current_time.strftime('%H:%M %d/%m/%Y'),
-        "current_hour": current_time.hour,
-        "session_weight": current_weight,
-        "trading_sessions": TRADING_SESSIONS
+        "syria_time": get_syria_time().strftime('%H:%M %d/%m/%Y'),
+        "current_hour": get_syria_time().hour,
+        "current_session": current_session,
+        "all_sessions": TRADING_SESSIONS
     }
 
-@app.on_event("startup")
-async def startup_event():
-    safe_log_info("بدء تشغيل ماسح القمم والقيعان", "system", "startup")
-    safe_log_info(f"العملات المدعومة: {list(SUPPORTED_COINS.keys())}", "system", "config")
-    safe_log_info(f"الأطر الزمنية: {TIMEFRAMES}", "system", "config")
-    safe_log_info(f"فاصل المسح: {SCAN_INTERVAL} ثانية", "system", "config")
-    safe_log_info(f"حد الثقة: {CONFIDENCE_THRESHOLD} نقطة", "system", "config")
-    
-    # بدء المهام
-    asyncio.create_task(market_scanner_task())
-    asyncio.create_task(health_check_task())
+@app.get("/test-telegram")
+async def test_telegram():
+    """اختبار إرسال رسالة تجريبية للتليجرام"""
+    try:
+        test_message = """
+🧪 *اختبار البوت - ماسح القمم والقيعان*
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    safe_log_info("إيقاف ماسح السوق", "system", "shutdown")
-    await data_fetcher.close()
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+✅ *الحالة:* البوت يعمل بشكل صحيح
+🕒 *الوقت:* {
