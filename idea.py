@@ -27,7 +27,7 @@ PORT = int(os.getenv("PORT", 8000))
 
 # إعدادات التداول
 SCAN_INTERVAL = 900  # 15 دقيقة بين كل فحص (بالثواني)
-CONFIDENCE_THRESHOLD = 65  # الحد الأدنى للنقاط لإرسال الإشعار
+CONFIDENCE_THRESHOLD = 50  # الحد الأدنى للنقاط لإرسال الإشعار
 
 # الأصول والأطر الزمنية
 SUPPORTED_COINS = {
