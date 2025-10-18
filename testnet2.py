@@ -16,7 +16,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandl
 # =============================================================================
 
 # إعدادات TESTNET
-TESTNET = True
+TESTNET = False
 
 # مفاتيح TESTNET - احصل عليها من: https://testnet.binancefuture.com/
 BINANCE_API_KEY = os.getenv('BINANCE_TESTNET_API_KEY', 'your_testnet_api_key_here')
@@ -27,11 +27,11 @@ ALLOWED_USER_IDS = [int(x) for x in os.getenv('ALLOWED_USER_IDS', '123456789').s
 
 # إعدادات التداول
 MAX_LEVERAGE = 20
-MAX_POSITION_SIZE = 1000  # USD
-MAX_DAILY_LOSS = 200      # USD
+MAX_POSITION_SIZE = 100  # USD
+MAX_DAILY_LOSS = 3      # USD
 
 # إعدادات Binance URLs
-FUTURES_URL = 'https://testnet.binancefuture.com' if TESTNET else 'https://fapi.binance.com'
+FUTURES_URL = 'https://testnet.binancefuture.com' if TESTNET else 'https://fapi.binance.com'.com'
 
 # =============================================================================
 # نهاية الإعدادات الرئيسية
