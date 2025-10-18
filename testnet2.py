@@ -406,111 +406,140 @@ class AdvancedFuturesBot:
             await self.send_telegram_message(update, f"❌ خطأ: {str(e)}")
     
     async def handle_long(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """فتح مركز طويل"""
+        """فتح مركز طويل بالقيمة بالدولار"""
         if not await self.is_user_allowed(update.effective_user.id):
             return
-        
+    
         try:
             if len(context.args) < 2:
-                await self.send_telegram_message(update, "❌ usage: /long symbol quantity [leverage]")
+                await self.send_telegram_message(update, "❌ usage: /long symbol usd_amount [leverage]")
                 return
-            
+        
             symbol = context.args[0].upper() + 'USDT'
-            quantity = float(context.args[1])
+            usd_amount = float(context.args[1])
             leverage = int(context.args[2].replace('x', '')) if len(context.args) > 2 else 10
-            
+        
             # التحقق من المخاطر
             leverage_ok, leverage_msg = await self.risk_manager.validate_leverage(leverage)
             if not leverage_ok:
                 await self.send_telegram_message(update, leverage_msg)
                 return
-            
+        
+            # الحصول على السعر الحالي
+            current_price = await self.trader.get_symbol_price(symbol)
+        
+            # حساب الكمية بناءً على القيمة بالدولار والرافعة
+            quantity = usd_amount / current_price / leverage
+        
+            # التحقق من حجم المركز
             size_ok, size_msg = await self.risk_manager.validate_position_size(symbol, quantity, leverage)
             if not size_ok:
-                await self.send_telegram_message(update, size_msg)
-                return
-            
+               await self.send_telegram_message(update, size_msg)
+               return
+        
             loss_ok, loss_msg = await self.risk_manager.validate_daily_loss()
             if not loss_ok:
                 await self.send_telegram_message(update, loss_msg)
                 return
-            
-            # الحصول على السعر الحالي
-            current_price = await self.trader.get_symbol_price(symbol)
-            
+        
+            # الحصول على معلومات الزوج للتقريب
+            exchange_info = await self.trader.get_exchange_info(symbol)
+            lot_size_filter = next((f for f in exchange_info['symbols'][0]['filters'] if f['filterType'] == 'LOT_SIZE'), None)
+        
+            if lot_size_filter:
+                step_size = float(lot_size_filter['stepSize'])
+                # تقريب الكمية لأقرب stepSize
+                quantity = round(quantity / step_size) * step_size
+        
             # تغيير الرافعة
             leverage_result = await self.trader.change_leverage(symbol, leverage)
-            
+        
             # فتح المركز
             order = await self.trader.create_market_order(symbol, 'BUY', quantity)
-            
+        
             await self.send_telegram_message(update,
                 f"🟢 *تم فتح مركز طويل*\n"
                 f"• الزوج: `{symbol}`\n"
-                f"• الكمية: `{quantity}`\n"
+                f"• القيمة: `${usd_amount}`\n"
+                f"• الكمية: `{quantity:.6f}`\n"
                 f"• السعر: `{current_price:.2f}`\n"
                 f"• الرافعة: `{leverage}x`\n"
                 f"• النوع: `MARKET`\n"
                 f"• المعرف: `{order['orderId']}`\n"
                 f"• الحالة: `{order['status']}`"
             )
-            
+        
         except Exception as e:
-            await self.send_telegram_message(update, f"❌ خطأ: {str(e)}")
-    
+            await self.send_telegram_message(update, f"❌ خطأ: {str(e)}")    
+
+        
     async def handle_short(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """فتح مركز قصير"""
+        """فتح مركز قصير بالقيمة بالدولار"""
         if not await self.is_user_allowed(update.effective_user.id):
             return
-        
+    
         try:
             if len(context.args) < 2:
-                await self.send_telegram_message(update, "❌ usage: /short symbol quantity [leverage]")
+                await self.send_telegram_message(update, "❌ usage: /short symbol usd_amount [leverage]")
                 return
-            
+        
             symbol = context.args[0].upper() + 'USDT'
-            quantity = float(context.args[1])
+            usd_amount = float(context.args[1])
             leverage = int(context.args[2].replace('x', '')) if len(context.args) > 2 else 10
-            
+        
             # التحقق من المخاطر
             leverage_ok, leverage_msg = await self.risk_manager.validate_leverage(leverage)
             if not leverage_ok:
                 await self.send_telegram_message(update, leverage_msg)
                 return
-            
+        
+            # الحصول على السعر الحالي
+            current_price = await self.trader.get_symbol_price(symbol)
+        
+            # حساب الكمية بناءً على القيمة بالدولار والرافعة
+            quantity = usd_amount / current_price / leverage
+        
+            # التحقق من حجم المركز
             size_ok, size_msg = await self.risk_manager.validate_position_size(symbol, quantity, leverage)
             if not size_ok:
                 await self.send_telegram_message(update, size_msg)
                 return
-            
+        
             loss_ok, loss_msg = await self.risk_manager.validate_daily_loss()
             if not loss_ok:
                 await self.send_telegram_message(update, loss_msg)
                 return
-            
-            # الحصول على السعر الحالي
-            current_price = await self.trader.get_symbol_price(symbol)
-            
+        
+            # الحصول على معلومات الزوج للتقريب
+            exchange_info = await self.trader.get_exchange_info(symbol)
+            lot_size_filter = next((f for f in exchange_info['symbols'][0]['filters'] if f['filterType'] == 'LOT_SIZE'), None)
+        
+            if lot_size_filter:
+                step_size = float(lot_size_filter['stepSize'])
+                # تقريب الكمية لأقرب stepSize
+                quantity = round(quantity / step_size) * step_size
+        
             # تغيير الرافعة
             await self.trader.change_leverage(symbol, leverage)
-            
+        
             # فتح المركز
             order = await self.trader.create_market_order(symbol, 'SELL', quantity)
-            
+        
             await self.send_telegram_message(update,
                 f"🔴 *تم فتح مركز قصير*\n"
                 f"• الزوج: `{symbol}`\n"
-                f"• الكمية: `{quantity}`\n"
+                f"• القيمة: `${usd_amount}`\n"
+                f"• الكمية: `{quantity:.6f}`\n"
                 f"• السعر: `{current_price:.2f}`\n"
                 f"• الرافعة: `{leverage}x`\n"
                 f"• النوع: `MARKET`\n"
                 f"• المعرف: `{order['orderId']}`\n"
                 f"• الحالة: `{order['status']}`"
             )
-            
+        
         except Exception as e:
-            await self.send_telegram_message(update, f"❌ خطأ: {str(e)}")
-    
+            await self.send_telegram_message(update, f"❌ خطأ: {str(e)}")   
+        
     async def handle_limit_long(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """فتح مركز طويل بحد سعر"""
         if not await self.is_user_allowed(update.effective_user.id):
