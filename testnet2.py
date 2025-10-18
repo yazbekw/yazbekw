@@ -1110,6 +1110,29 @@ class AdvancedFuturesBot:
 # التشغيل الرئيسي
 # =============================================================================
 
+# =============================================================================
+# إعدادات الخادم للتشغيل على Render
+# =============================================================================
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b'Bot is running')
+    
+    def log_message(self, format, *args):
+        return  # تعطيل التسجيل
+
+def start_health_check_server():
+    """تشغيل خادم للتحقق من صحة التطبيق"""
+    port = int(os.getenv('PORT', 10000))
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    logger.info(f"🔄 بدء خادم التحقق على المنفذ {port}")
+    server.serve_forever()
+
 def main():
     """الدالة الرئيسية"""
     
@@ -1123,6 +1146,10 @@ def main():
         return
     
     try:
+        # بدء خادم التحقق في thread منفصل
+        health_thread = threading.Thread(target=start_health_check_server, daemon=True)
+        health_thread.start()
+        
         # إنشاء وتشغيل البوت
         bot = AdvancedFuturesBot(
             telegram_token=TELEGRAM_TOKEN,
