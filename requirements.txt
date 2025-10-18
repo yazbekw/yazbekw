@@ -5,10 +5,7 @@ pandas==2.2.2
 numpy==1.25.2
 matplotlib==3.9.2
 scipy==1.9.3
-
-python-binance==1.0.19
-python-telegram-bot==21.10
+binance-connector==3.6.0
+python-telegram-bot==20.7
 pytz==2024.1
-cryptography==42.0.8
-aiofiles==23.2.1
-asyncio-throttle==1.0.2
+requests==2.31.0
