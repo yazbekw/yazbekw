@@ -2,21 +2,24 @@ import os
 import asyncio
 import logging
 from typing import Dict, Any, List, Optional
-from binance.client import Client
-from binance.enums import *
-from binance.exceptions import BinanceAPIException
+from binance.spot import Spot as Client
+from binance.lib.utils import config_logging
+from binance.error import ClientError
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 import httpx
 from datetime import datetime
 import json
+import hmac
+import hashlib
+import time
 
 # =============================================================================
 # الإعدادات الرئيسية - TESTNET
 # =============================================================================
 
-# إعدادات TESTNET - استبدل هذه بالمفاتيح الخاصة بك
-TESTNET = True  # ضع False للانتقال للواقعي
+# إعدادات TESTNET
+TESTNET = True
 
 # مفاتيح TESTNET - احصل عليها من: https://testnet.binancefuture.com/
 BINANCE_API_KEY = os.getenv('BINANCE_TESTNET_API_KEY', 'your_testnet_api_key_here')
@@ -25,14 +28,13 @@ BINANCE_API_SECRET = os.getenv('BINANCE_TESTNET_API_SECRET', 'your_testnet_api_s
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN', 'your_telegram_bot_token_here')
 ALLOWED_USER_IDS = [int(x) for x in os.getenv('ALLOWED_USER_IDS', '123456789').split(',')]
 
+# إعدادات Binance URLs
+BASE_URL = 'https://testnet.binance.vision' if TESTNET else 'https://api.binance.com'
+FUTURES_URL = 'https://testnet.binancefuture.com' if TESTNET else 'https://fapi.binance.com'
+
 # إعدادات التداول
 MAX_LEVERAGE = 20
 MAX_POSITION_SIZE = 1000  # USD
-MAX_DAILY_LOSS = 200      # USD
-
-# إعدادات Binance URLs
-BINANCE_FUTURES_TESTNET_URL = 'https://testnet.binancefuture.com'
-BINANCE_FUTURES_MAINNET_URL = 'https://fapi.binance.com'
 
 # =============================================================================
 # نهاية الإعدادات الرئيسية
@@ -46,87 +48,121 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class FuturesTrader:
-    """مدير تداول العقود الآجلة مع دعم TESTNET"""
+    """مدير تداول العقود الآجلة باستخدام binance-connector"""
     
     def __init__(self, api_key: str, api_secret: str, testnet: bool = True):
+        self.api_key = api_key
+        self.api_secret = api_secret
         self.testnet = testnet
-        self.client = Client(
-            api_key=api_key,
-            api_secret=api_secret,
-            testnet=testnet
-        )
+        self.base_url = FUTURES_URL
         logger.info(f"🔧 تهيئة Binance Futures {'TESTNET' if testnet else 'MAINNET'}")
     
-    def get_exchange_info(self, symbol: str) -> Dict[str, Any]:
-        """الحصول على معلومات الزوج"""
-        return self.client.futures_exchange_info(symbol=symbol)
+    def _sign_request(self, params: Dict) -> str:
+        """توقيع الطلب"""
+        query_string = '&'.join([f"{key}={value}" for key, value in params.items()])
+        return hmac.new(
+            self.api_secret.encode('utf-8'),
+            query_string.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest()
     
-    def change_leverage(self, symbol: str, leverage: int) -> Dict[str, Any]:
+    async def _make_request(self, method: str, endpoint: str, params: Dict = None, signed: bool = False) -> Dict[str, Any]:
+        """تنفيذ طلب HTTP"""
+        try:
+            url = f"{self.base_url}{endpoint}"
+            headers = {'X-MBX-APIKEY': self.api_key}
+            
+            if signed and params:
+                params['timestamp'] = int(time.time() * 1000)
+                params['signature'] = self._sign_request(params)
+            
+            async with httpx.AsyncClient() as client:
+                if method == 'GET':
+                    response = await client.get(url, params=params, headers=headers)
+                elif method == 'POST':
+                    response = await client.post(url, params=params, headers=headers)
+                elif method == 'DELETE':
+                    response = await client.delete(url, params=params, headers=headers)
+                else:
+                    raise ValueError(f"Method {method} not supported")
+                
+                response.raise_for_status()
+                return response.json()
+                
+        except Exception as e:
+            logger.error(f"Request error: {e}")
+            raise
+    
+    async def change_leverage(self, symbol: str, leverage: int) -> Dict[str, Any]:
         """تغيير الرافعة المالية"""
-        return self.client.futures_change_leverage(
-            symbol=symbol,
-            leverage=leverage
-        )
+        return await self._make_request('POST', '/fapi/v1/leverage', {
+            'symbol': symbol,
+            'leverage': leverage
+        }, signed=True)
     
-    def create_market_order(self, symbol: str, side: str, quantity: float) -> Dict[str, Any]:
+    async def create_market_order(self, symbol: str, side: str, quantity: float) -> Dict[str, Any]:
         """إنشاء أمر سوقي"""
-        return self.client.futures_create_order(
-            symbol=symbol,
-            side=side,
-            type='MARKET',
-            quantity=quantity
-        )
+        return await self._make_request('POST', '/fapi/v1/order', {
+            'symbol': symbol,
+            'side': side,
+            'type': 'MARKET',
+            'quantity': quantity
+        }, signed=True)
     
-    def create_limit_order(self, symbol: str, side: str, quantity: float, price: float) -> Dict[str, Any]:
+    async def create_limit_order(self, symbol: str, side: str, quantity: float, price: float) -> Dict[str, Any]:
         """إنشاء أمر حدي"""
-        return self.client.futures_create_order(
-            symbol=symbol,
-            side=side,
-            type='LIMIT',
-            quantity=quantity,
-            price=price,
-            timeInForce='GTC'
-        )
+        return await self._make_request('POST', '/fapi/v1/order', {
+            'symbol': symbol,
+            'side': side,
+            'type': 'LIMIT',
+            'quantity': quantity,
+            'price': price,
+            'timeInForce': 'GTC'
+        }, signed=True)
     
-    def create_stop_loss(self, symbol: str, side: str, stop_price: float) -> Dict[str, Any]:
+    async def create_stop_loss(self, symbol: str, side: str, stop_price: float) -> Dict[str, Any]:
         """إنشاء وقف خسارة"""
-        return self.client.futures_create_order(
-            symbol=symbol,
-            side=side,
-            type='STOP_MARKET',
-            stopPrice=stop_price,
-            closePosition=True
-        )
+        return await self._make_request('POST', '/fapi/v1/order', {
+            'symbol': symbol,
+            'side': side,
+            'type': 'STOP_MARKET',
+            'stopPrice': stop_price,
+            'closePosition': 'true'
+        }, signed=True)
     
-    def create_take_profit(self, symbol: str, side: str, stop_price: float) -> Dict[str, Any]:
+    async def create_take_profit(self, symbol: str, side: str, stop_price: float) -> Dict[str, Any]:
         """إنشاء جني أرباح"""
-        return self.client.futures_create_order(
-            symbol=symbol,
-            side=side,
-            type='TAKE_PROFIT_MARKET',
-            stopPrice=stop_price,
-            closePosition=True
-        )
+        return await self._make_request('POST', '/fapi/v1/order', {
+            'symbol': symbol,
+            'side': side,
+            'type': 'TAKE_PROFIT_MARKET',
+            'stopPrice': stop_price,
+            'closePosition': 'true'
+        }, signed=True)
     
-    def cancel_all_orders(self, symbol: str) -> List[Dict[str, Any]]:
+    async def cancel_all_orders(self, symbol: str) -> List[Dict[str, Any]]:
         """إلغاء جميع الأوامر للزوج"""
-        return self.client.futures_cancel_all_open_orders(symbol=symbol)
+        return await self._make_request('DELETE', '/fapi/v1/allOpenOrders', {
+            'symbol': symbol
+        }, signed=True)
     
-    def get_open_orders(self, symbol: str = None) -> List[Dict[str, Any]]:
+    async def get_open_orders(self, symbol: str = None) -> List[Dict[str, Any]]:
         """الحصول على الأوامر المفتوحة"""
-        return self.client.futures_get_open_orders(symbol=symbol) if symbol else self.client.futures_get_open_orders()
+        params = {'symbol': symbol} if symbol else {}
+        return await self._make_request('GET', '/fapi/v1/openOrders', params, signed=True)
     
-    def get_position_info(self, symbol: str = None) -> List[Dict[str, Any]]:
+    async def get_position_info(self, symbol: str = None) -> List[Dict[str, Any]]:
         """الحصول على معلومات المراكز"""
-        return self.client.futures_position_information(symbol=symbol) if symbol else self.client.futures_position_information()
+        params = {'symbol': symbol} if symbol else {}
+        return await self._make_request('GET', '/fapi/v2/positionRisk', params, signed=True)
     
-    def get_account_balance(self) -> List[Dict[str, Any]]:
+    async def get_account_balance(self) -> List[Dict[str, Any]]:
         """الحصول على رصيد الحساب"""
-        return self.client.futures_account_balance()
+        return await self._make_request('GET', '/fapi/v2/balance', {}, signed=True)
     
-    def get_symbol_price(self, symbol: str) -> float:
+    async def get_symbol_price(self, symbol: str) -> float:
         """الحصول على سعر الزوج الحالي"""
-        ticker = self.client.futures_symbol_ticker(symbol=symbol)
+        ticker = await self._make_request('GET', '/fapi/v1/ticker/price', {'symbol': symbol})
         return float(ticker['price'])
 
 class RiskManager:
@@ -136,18 +172,17 @@ class RiskManager:
         self.trader = trader
         self.max_leverage = MAX_LEVERAGE
         self.max_position_size = MAX_POSITION_SIZE
-        self.max_daily_loss = MAX_DAILY_LOSS
     
-    def validate_leverage(self, leverage: int) -> tuple[bool, str]:
+    async def validate_leverage(self, leverage: int) -> tuple[bool, str]:
         """التحقق من صحة الرافعة"""
         if leverage > self.max_leverage:
             return False, f"الرافعة {leverage}x تتجاوز الحد الأقصى {self.max_leverage}x"
         return True, "✅ الرافعة مقبولة"
     
-    def validate_position_size(self, symbol: str, quantity: float, leverage: int) -> tuple[bool, str]:
+    async def validate_position_size(self, symbol: str, quantity: float, leverage: int) -> tuple[bool, str]:
         """التحقق من حجم المركز"""
         try:
-            current_price = self.trader.get_symbol_price(symbol)
+            current_price = await self.trader.get_symbol_price(symbol)
             position_size = current_price * quantity * leverage
             
             if position_size > self.max_position_size:
