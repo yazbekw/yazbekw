@@ -26,13 +26,14 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 PORT = int(os.getenv("PORT", 8000))
 
 # إعدادات التداول
-SCAN_INTERVAL = 180  # 15 دقيقة بين كل فحص (بالثواني)
+SCAN_INTERVAL = 1200  # 15 دقيقة بين كل فحص (بالثواني)
 HEARTBEAT_INTERVAL = 7200  # 15 دقيقة بين كل نبضة (بالثواني)
 CONFIDENCE_THRESHOLD = 40  # الحد الأدنى للنقاط لإرسال الإشعار
 
 # الأصول والأطر الزمنية
 SUPPORTED_COINS = {
     'btc': {'name': 'Bitcoin', 'binance_symbol': 'BTCUSDT', 'symbol': 'BTC'},
+    'eth': {'name': 'Etherium', 'binance_symbol': 'ETHUSDT' 'symbol': 'ETH'},
     'bnb': {'name': 'Binance Coin', 'binance_symbol': 'BNBUSDT', 'symbol': 'BNB'},
 }
 
