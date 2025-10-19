@@ -1204,6 +1204,16 @@ pb - سعر BNB    | pe - سعر ETH    | px - سعر BTC
 
 def main():
     """الدالة الرئيسية"""
+
+    try:
+        import socket
+        lock_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        lock_socket.bind(('localhost', 65432))  # منفذ فريد للبوت
+        logger.info("🔒 قفل التشغيل المفرد مفعل - البوت يعمل")
+    except socket.error:
+        logger.error("❌ البوت يعمل بالفعل! أوقف النسخة الأخرى أولاً")
+        print("❌ البوت يعمل بالفعل! أوقف النسخة الأخرى أولاً")
+        return
     
     # التحقق من وجود المفاتيح
     if BINANCE_API_KEY == 'your_testnet_api_key_here':
