@@ -33,7 +33,7 @@ CONFIDENCE_THRESHOLD = 40  # الحد الأدنى للنقاط لإرسال ا�
 # الأصول والأطر الزمنية
 SUPPORTED_COINS = {
     'btc': {'name': 'Bitcoin', 'binance_symbol': 'BTCUSDT', 'symbol': 'BTC'},
-    'eth': {'name': 'Ethereum', 'binance_symbol': 'ETHUSDT' 'symbol': 'ETH'},
+    'eth': {'name': 'Ethereum', 'binance_symbol': 'ETHUSDT'، 'symbol': 'ETH'},
     'bnb': {'name': 'Binance Coin', 'binance_symbol': 'BNBUSDT', 'symbol': 'BNB'},
 }
 
