@@ -1202,18 +1202,46 @@ pb - سعر BNB    | pe - سعر ETH    | px - سعر BTC
 # التشغيل الرئيسي
 # =============================================================================
 
+# =============================================================================
+# إعدادات الخادم للتشغيل على Render
+# =============================================================================
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b'Bot is running')
+    
+    def log_message(self, format, *args):
+        return  # تعطيل التسجيل
+
+def start_health_check_server():
+    """تشغيل خادم للتحقق من صحة التطبيق"""
+    port = int(os.getenv('PORT', 10000))
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    logger.info(f"🔄 بدء خادم التحقق على المنفذ {port}")
+    server.serve_forever()
+
 def main():
     """الدالة الرئيسية"""
-
+    
+    # 🔒 منع التشغيل المتعدد
     try:
         import socket
         lock_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        lock_socket.bind(('localhost', 65432))  # منفذ فريد للبوت
-        logger.info("🔒 قفل التشغيل المفرد مفعل - البوت يعمل")
+        lock_socket.bind(('localhost', 65432))
+        logger.info("🔒 قفل التشغيل المفرد مفعل")
     except socket.error:
         logger.error("❌ البوت يعمل بالفعل! أوقف النسخة الأخرى أولاً")
         print("❌ البوت يعمل بالفعل! أوقف النسخة الأخرى أولاً")
         return
+    
+    # بدء خادم التحقق في thread منفصل
+    health_thread = threading.Thread(target=start_health_check_server, daemon=True)
+    health_thread.start()
     
     # التحقق من وجود المفاتيح
     if BINANCE_API_KEY == 'your_testnet_api_key_here':
@@ -1233,7 +1261,12 @@ def main():
             testnet=TESTNET
         )
         
-        bot.run()
+        # 🔥 استخدام polling مع إعدادات خاصة
+        bot.application.run_polling(
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True,  # تجاهل الرسائل القديمة
+            close_loop=False
+        )
         
     except Exception as e:
         logger.error(f"❌ خطأ في تشغيل البوت: {e}")
