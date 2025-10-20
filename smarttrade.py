@@ -1362,26 +1362,32 @@ pb - سعر BNB    | pe - سعر ETH    | px - سعر BTC    | ps - سعر SOL
         """عرض المراكز المفتوحة"""
         if not await self.is_user_allowed(update.effective_user.id):
             return
-        
+    
         try:
             symbol = context.args[0].upper() + 'USDT' if context.args else None
             positions = await self.trader.get_position_info(symbol)
             open_positions = [p for p in positions if float(p['positionAmt']) != 0]
-            
+        
             if not open_positions:
                 await self.send_telegram_message(update, "📭 لا توجد مراكز مفتوحة")
                 return
-            
+        
             message = "📊 *المراكز المفتوحة:*\n\n"
             total_pnl = 0.0
-            
+        
             for pos in open_positions:
                 side = "🟢 LONG" if float(pos['positionAmt']) > 0 else "🔴 SHORT"
                 pnl = float(pos['unRealizedProfit'])
                 total_pnl += pnl
+            
+                # الحساب الصحيح للنسبة المئوية (مثل Binance)
+                entry_value = float(pos['entryPrice']) * abs(float(pos['positionAmt']))
+                leverage = float(pos['leverage'])
+                margin_used = entry_value / leverage  # الهامش المستخدم
+                pnl_percent = (pnl / margin_used) * 100 if margin_used != 0 else 0
+            
                 pnl_emoji = "💰" if pnl > 0 else "💸" if pnl < 0 else "⚪"
-                pnl_percent = (pnl / (float(pos['entryPrice']) * abs(float(pos['positionAmt'])))) * 100
-                
+            
                 message += (
                     f"• {pos['symbol']} {side}\n"
                     f"  الكمية: `{abs(float(pos['positionAmt']))}`\n"
@@ -1389,14 +1395,14 @@ pb - سعر BNB    | pe - سعر ETH    | px - سعر BTC    | ps - سعر SOL
                     f"  PnL: {pnl_emoji} `{pnl:.4f} USDT` ({pnl_percent:+.2f}%)\n"
                     f"  الرافعة: `{pos['leverage']}x`\n\n"
                 )
-            
+        
             message += f"*الإجمالي:* `{total_pnl:.4f} USDT`"
-            
+        
             await self.send_telegram_message(update, message)
-            
+        
         except Exception as e:
-            await self.send_telegram_message(update, f"❌ خطأ: {str(e)}")
-    
+            await self.send_telegram_message(update, f"❌ خطأ: {str(e)}")    
+   
     async def handle_orders(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """عرض الأوامر المعلقة"""
         if not await self.is_user_allowed(update.effective_user.id):
