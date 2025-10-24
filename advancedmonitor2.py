@@ -981,6 +981,7 @@ class CompleteTradeManager:
         minutes = (duration.seconds % 3600) // 60
         return f"{hours}h {minutes}m"
 
+
 class TradeManagerBot:
     """الفئة الرئيسية للبوت المدير"""
     
@@ -1070,6 +1071,7 @@ class TradeManagerBot:
                     f"العملات المدعومة: {', '.join(TRADING_SETTINGS['symbols'])}\n"
                     f"تقنية وقف الخسارة: ديناميكي حسب الدعم/المقاومة + ATR\n"
                     f"تقنية جني الأرباح: 3 مستويات مع تعديل التقلب\n"
+                    f"🛡️ نظام الوقف المزدوج: جزئي + كامل\n"
                     f"المراقبة: كل 10 ثواني\n"
                     f"المزامنة: تلقائية مع Binance\n"
                     f"الصفقات النشطة: {active_count}\n"
@@ -1237,9 +1239,34 @@ def debug_telegram_test():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
+@app.route('/api/debug/stop-levels/<symbol>')
+def debug_stop_levels(symbol):
+    """عرض مستويات وقف الخسارة لعملة محددة"""
+    try:
+        bot = TradeManagerBot.get_instance()
+        
+        if symbol in bot.trade_manager.managed_trades:
+            trade = bot.trade_manager.managed_trades[symbol]
+            current_price = bot.trade_manager.get_current_price(symbol)
+            
+            return jsonify({
+                'success': True,
+                'symbol': symbol,
+                'entry_price': trade['entry_price'],
+                'current_price': current_price,
+                'stop_levels': trade['dynamic_stop_loss'],
+                'take_profit_levels': trade['take_profit_levels'],
+                'timestamp': datetime.now(damascus_tz).isoformat()
+            })
+        else:
+            return jsonify({'success': False, 'message': 'لا توجد صفقة مدارة بهذا الرمز'})
+            
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
 def run_flask_app():
     """تشغيل تطبيق Flask"""
-    port = int(os.environ.get('MANAGER_PORT', 10001))
+    port = int(os.environ.get('PORT', 10001))  # ✅ تغيير إلى PORT ليتوافق مع Render
     app.run(host='0.0.0.0', port=port, debug=False)
 
 def main():
@@ -1252,6 +1279,9 @@ def main():
         flask_thread.start()
         
         logger.info("🚀 بدء تشغيل مدير الصفقات المتكامل...")
+        logger.info(f"🌐 تطبيق Flask يعمل على المنفذ: {os.environ.get('PORT', 10001)}")
+        
+        # بدء حلقة الإدارة
         bot.management_loop()
                 
     except Exception as e:
