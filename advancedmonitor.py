@@ -21,12 +21,11 @@ load_dotenv()
 
 # ========== الإعدادات الأساسية ==========
 TRADING_SETTINGS = {
-    'symbols': ["BNBUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "LTCUSDT", 
-                "ADAUSDT", "AVAXUSDT", "DOTUSDT", "LINKUSDT"],
-    'base_trade_amount': 4,
+    'symbols': ["BNBUSDT", "ETHUSDT"],
+    'base_trade_amount': 3,
     'leverage': 50,
-    'position_size': 4 * 50,
-    'max_simultaneous_trades': 3,
+    'position_size': 3 * 50,
+    'max_simultaneous_trades': 1,
 }
 
 RISK_SETTINGS = {
