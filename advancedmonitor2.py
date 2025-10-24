@@ -1233,27 +1233,32 @@ class TradeManagerBot:
         """حلقة الإدارة الرئيسية"""
         last_report_time = datetime.now(damascus_tz)
         last_sync_time = datetime.now(damascus_tz)
-        
+    
         while True:
             try:
                 current_time = datetime.now(damascus_tz)
-                
+            
                 self.trade_manager.check_managed_trades()
-                
+            
+                # مراقبة الهامش كل دقيقة
                 if (current_time - last_sync_time).seconds >= 60:
-                self.trade_manager.margin_monitor.check_margin_health(self.trade_manager.client)
-                last_sync_time = current_time
-                
+                    margin_health = self.trade_manager.margin_monitor.check_margin_health(self.trade_manager.client)
+                    if margin_health and margin_health['is_risk_high']:
+                       logger.warning(f"🚨 مستوى خطورة مرتفع: {margin_health['margin_ratio']:.2%}")
+                    last_sync_time = current_time
+            
+                # مزامنة الصفقات كل 5 دقائق
                 if (current_time - last_sync_time).seconds >= 300:
                     self.trade_manager.sync_with_binance_positions()
                     last_sync_time = current_time
-                
+            
+                # تقرير الأداء كل 6 ساعات
                 if (current_time - last_report_time).seconds >= 21600:
                     self.trade_manager.send_performance_report()
                     last_report_time = current_time
-                
+            
                 time.sleep(10)
-                
+            
             except KeyboardInterrupt:
                 logger.info("⏹️ إيقاف البوت يدوياً...")
                 break
