@@ -1241,8 +1241,8 @@ class TradeManagerBot:
                 self.trade_manager.check_managed_trades()
                 
                 if (current_time - last_sync_time).seconds >= 60:
-                    self.trade_manager.monitor_margin_risk()
-                    last_sync_time = current_time
+                self.trade_manager.margin_monitor.check_margin_health(self.trade_manager.client)
+                last_sync_time = current_time
                 
                 if (current_time - last_sync_time).seconds >= 300:
                     self.trade_manager.sync_with_binance_positions()
