@@ -45,8 +45,8 @@ RISK_SETTINGS = {
 
 TAKE_PROFIT_LEVELS = {
     'LEVEL_1': {'target': 0.0025, 'allocation': 0.5},
-    'LEVEL_2': {'target': 0.0035, 'allocation': 0.5},
-    'LEVEL_3': {'target': 0.0050, 'allocation': 0.0}
+    'LEVEL_2': {'target': 0.0030, 'allocation': 0.3},
+    'LEVEL_3': {'target': 0.0035, 'allocation': 0.2}
 }
 
 damascus_tz = pytz.timezone('Asia/Damascus')
@@ -534,18 +534,18 @@ class CompleteTradeManager:
         """مزامنة الصفقات مع Binance"""
         try:
             self.debug_active_positions()
-            
+        
             active_positions = self.get_active_positions_from_binance()
             current_managed = set(self.managed_trades.keys())
             binance_symbols = {pos['symbol'] for pos in active_positions}
-            
+        
             logger.info(f"🔄 المزامنة: {len(active_positions)} صفقة في Binance, {len(current_managed)} صفقة مدارة")
-            
+        
             added_count = 0
             for position in active_positions:
                 if position['symbol'] not in current_managed:
                     logger.info(f"🔄 إضافة صفقة جديدة للمراقبة: {position['symbol']}")
-                    
+                
                     df = self.get_price_data(position['symbol'])
                     if df is not None and not df.empty:
                         success = self.manage_new_trade(position)
@@ -557,6 +557,10 @@ class CompleteTradeManager:
                     else:
                         logger.warning(f"⚠️ لا يمكن إدارة {position['symbol']} - بيانات السعر غير متوفرة")
             
+                else:
+                    # ✅ تحديث التوزيع للصفقات الحالية
+                    self.update_take_profit_allocation(position['symbol'])
+        
             removed_count = 0
             for symbol in list(current_managed):
                 if symbol not in binance_symbols:
@@ -564,10 +568,10 @@ class CompleteTradeManager:
                     if symbol in self.managed_trades:
                         del self.managed_trades[symbol]
                         removed_count += 1
-            
+        
             logger.info(f"🔄 انتهت المزامنة: أضيف {added_count}، أزيل {removed_count}")
             return len(active_positions)
-            
+        
         except Exception as e:
             logger.error(f"❌ خطأ في المزامنة مع Binance: {e}")
             return 0
@@ -900,17 +904,19 @@ class CompleteTradeManager:
     
         self.managed_trades[symbol]['last_update'] = datetime.now(damascus_tz)
     
+    
+
     def send_management_start_notification(self, symbol):
-        """إرسال إشعار بدء الإدارة مع تفاصيل الوقف المزدوج والحد الأدنى"""
+        """إرسال إشعار بدء الإدارة مع تفاصيل الوقف المزدوج والحد الأدنى - محدث"""
         try:
             trade = self.managed_trades[symbol]
             stop_levels = trade['dynamic_stop_loss']
-        
+    
             # حساب النسب المئوية
             entry_price = trade['entry_price']
             partial_stop_pct = abs(entry_price - stop_levels['partial_stop_loss']) / entry_price * 100
             full_stop_pct = abs(entry_price - stop_levels['full_stop_loss']) / entry_price * 100
-        
+    
             message = (
                 f"🔄 <b>بدء إدارة صفقة جديدة</b>\n"
                 f"العملة: {symbol}\n"
@@ -918,20 +924,24 @@ class CompleteTradeManager:
                 f"سعر الدخول: ${trade['entry_price']:.4f}\n"
                 f"الكمية: {trade['quantity']:.6f}\n"
                 f"<b>وقف الخسارة المزدوج:</b>\n"
-                f"• جزئي (40%): ${stop_levels['partial_stop_loss']:.4f} ({partial_stop_pct:.2f}%)\n"
+                f"• جزئي ({RISK_SETTINGS['partial_close_ratio']*100:.0f}%): ${stop_levels['partial_stop_loss']:.4f} ({partial_stop_pct:.2f}%)\n"
                 f"• كامل (100%): ${stop_levels['full_stop_loss']:.4f} ({full_stop_pct:.2f}%)\n"
                 f"<b>الحد الأدنى للوقف:</b> {RISK_SETTINGS['min_stop_loss_pct']*100}%\n"
-                f"مستويات جني الأرباح:\n"
+                f"<b>مستويات جني الأرباح:</b>\n"
             )
-        
+    
             for level, config in trade['take_profit_levels'].items():
                 tp_pct = abs(entry_price - config['price']) / entry_price * 100
-                message += f"• {level}: ${config['price']:.4f} ({tp_pct:.2f}%)\n"
-        
+                allocation_pct = config['allocation'] * 100
+                message += f"• {level}: ${config['price']:.4f} ({tp_pct:.2f}%) - {allocation_pct:.0f}%\n"
+    
+            # إضافة معلومات التوزيع الكلي
+            total_allocation = sum(config['allocation'] for config in trade['take_profit_levels'].values()) * 100
+            message += f"<b>التوزيع الكلي:</b> {total_allocation:.0f}%\n"
             message += f"الوقت: {datetime.now(damascus_tz).strftime('%H:%M:%S')}"
-        
+    
             return self.notifier.send_message(message)
-        
+    
         except Exception as e:
             logger.error(f"❌ خطأ في إرسال إشعار بدء الإدارة: {e}")
             return False
@@ -968,10 +978,22 @@ class CompleteTradeManager:
             return False
     
     def send_take_profit_notification(self, trade, level, current_price):
-        """إرسال إشعار جني الأرباح"""
+        """إرسال إشعار جني الأرباح - محدث"""
         try:
             config = trade['take_profit_levels'][level]
-            
+        
+            # حساب المستويات المتبقية الفعلية (التي لم تغلق ولها توزيع > 0)
+            remaining_levels = [
+                lvl for lvl, cfg in trade['take_profit_levels'].items() 
+                if lvl not in trade['closed_levels'] and cfg['allocation'] > 0
+            ]
+        
+            # حساب التوزيع المتبقي
+            remaining_allocation = sum(
+                cfg['allocation'] for lvl, cfg in trade['take_profit_levels'].items() 
+                if lvl not in trade['closed_levels'] and cfg['allocation'] > 0
+            ) * 100
+
             message = (
                 f"🎯 <b>جني أرباح جزئي</b>\n"
                 f"العملة: {trade['symbol']}\n"
@@ -980,21 +1002,35 @@ class CompleteTradeManager:
                 f"سعر الجني: ${current_price:.4f}\n"
                 f"الربح: {config['target_percent']:.2f}%\n"
                 f"الكمية: {config['quantity']:.6f}\n"
-                f"المستويات المتبقية: {len(trade['take_profit_levels']) - len(trade['closed_levels'])}\n"
+                f"التوزيع: {config['allocation']*100:.0f}%\n"
+                f"المستويات المتبقية: {len(remaining_levels)}\n"
+                f"التوزيع المتبقي: {remaining_allocation:.0f}%\n"
                 f"الوقت: {datetime.now(damascus_tz).strftime('%H:%M:%S')}"
             )
-            
+        
             return self.notifier.send_message(message)
-            
+        
         except Exception as e:
             logger.error(f"❌ خطأ في إرسال إشعار جني الأرباح: {e}")
             return False
     
     def send_trade_closed_notification(self, trade, current_price, reason, pnl_pct):
-        """إرسال إشعار إغلاق الصفقة"""
+        """إرسال إشعار إغلاق الصفقة - محدث"""
         try:
             pnl_emoji = "🟢" if pnl_pct > 0 else "🔴"
-            
+        
+            # حساب المستويات المحققة فعلياً (التي لها توزيع > 0)
+            achieved_levels = [
+                lvl for lvl in trade['closed_levels'] 
+                if lvl in trade['take_profit_levels'] and trade['take_profit_levels'][lvl]['allocation'] > 0
+            ]
+        
+            # حساب إجمالي المستويات الفعالة
+            total_effective_levels = [
+                lvl for lvl, cfg in trade['take_profit_levels'].items() 
+                if cfg['allocation'] > 0
+            ]
+
             message = (
                 f"🔒 <b>إغلاق الصفقة</b>\n"
                 f"العملة: {trade['symbol']}\n"
@@ -1003,13 +1039,13 @@ class CompleteTradeManager:
                 f"سعر الخروج: ${current_price:.4f}\n"
                 f"الربح/الخسارة: {pnl_emoji} {pnl_pct:+.2f}%\n"
                 f"السبب: {reason}\n"
-                f"المستويات المحققة: {len(trade['closed_levels'])}/{len(trade['take_profit_levels'])}\n"
+                f"المستويات المحققة: {len(achieved_levels)}/{len(total_effective_levels)}\n"
                 f"مدة الإدارة: {self.get_management_duration(trade)}\n"
                 f"الوقت: {datetime.now(damascus_tz).strftime('%H:%M:%S')}"
             )
-            
+        
             return self.notifier.send_message(message)
-            
+        
         except Exception as e:
             logger.error(f"❌ خطأ في إرسال إشعار إغلاق الصفقة: {e}")
             return False
@@ -1066,6 +1102,28 @@ class CompleteTradeManager:
         minutes = (duration.seconds % 3600) // 60
         return f"{hours}h {minutes}m"
 
+    def update_take_profit_allocation(self, symbol):
+        """تحديث توزيع جني الأرباح للصفقة الحالية"""
+        if symbol not in self.managed_trades:
+            return False
+        
+        try:
+            trade = self.managed_trades[symbol]
+            
+            # إعادة حساب توزيع جني الأرباح مع الإعدادات الجديدة
+            total_quantity = trade['quantity']
+            for level, config in trade['take_profit_levels'].items():
+                if level in TAKE_PROFIT_LEVELS:
+                    new_allocation = TAKE_PROFIT_LEVELS[level]['allocation']
+                    config['allocation'] = new_allocation
+                    config['quantity'] = total_quantity * new_allocation
+                    logger.info(f"🔄 تحديث {symbol} - {level}: التوزيع {new_allocation*100}%، الكمية {config['quantity']:.6f}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ خطأ في تحديث توزيع جني الأرباح لـ {symbol}: {e}")
+            return False
 
 class TradeManagerBot:
     """الفئة الرئيسية للبوت المدير"""
@@ -1205,6 +1263,23 @@ class TradeManagerBot:
 
 # ========== واجهة Flask ==========
 
+@app.route('/api/management/update-allocation/<symbol>', methods=['POST'])
+@require_api_key
+def update_take_profit_allocation(symbol):
+    """تحديث توزيع جني الأرباح لصفقة محددة"""
+    try:
+        bot = TradeManagerBot.get_instance()
+        success = bot.trade_manager.update_take_profit_allocation(symbol)
+        
+        return jsonify({
+            'success': success,
+            'message': f'تم تحديث التوزيع لـ {symbol}' if success else f'فشل تحديث التوزيع لـ {symbol}',
+            'timestamp': datetime.now(damascus_tz).isoformat()
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+    
 @app.route('/')
 def health_check():
     """فحص صحة البوت"""
