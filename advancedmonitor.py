@@ -290,26 +290,32 @@ class MarginMonitor:
         self.position_reduction = position_reduction
     
     def check_margin_health(self, client):
-        """فحص صحة الهامش"""
+        """فحص صحة الهامش - مصححة"""
         try:
             account_info = client.futures_account()
-            total_margin = float(account_info['totalMarginBalance'])
-            available_balance = float(account_info['availableBalance'])
-            total_wallet_balance = float(account_info['totalWalletBalance'])
-            
+        
+            # ✅ استخدام الحقول الصحيحة من Binance API
+            total_wallet_balance = float(account_info['totalWalletBalance'])  # إجمالي الرصيد
+            available_balance = float(account_info['availableBalance'])       # الرصيد المتاح
+            total_margin_balance = float(account_info['totalMarginBalance'])  # إجمالي الهامش
+        
+            logger.info(f"🔍 تصحيح الهامش: الرصيد={total_wallet_balance}, المتاح={available_balance}, الهامش={total_margin_balance}")
+        
             if total_wallet_balance > 0:
-                margin_ratio = (total_margin / total_wallet_balance)
-                risk_level = margin_ratio
-                
+                # ✅ الحساب الصحيح: (الرصيد - المتاح) / الرصيد
+                margin_used = total_wallet_balance - available_balance
+                margin_ratio = margin_used / total_wallet_balance
+            
                 return {
-                    'total_margin': total_margin,
-                    'available_balance': available_balance,
                     'total_wallet_balance': total_wallet_balance,
+                    'available_balance': available_balance,
+                    'total_margin_balance': total_margin_balance,
+                    'margin_used': margin_used,
                     'margin_ratio': margin_ratio,
-                    'risk_level': risk_level,
-                    'is_risk_high': risk_level > self.risk_threshold
+                    'is_risk_high': margin_ratio > self.risk_threshold
                 }
             return None
+        
         except Exception as e:
             logger.error(f"❌ خطأ في فحص الهامش: {e}")
             return None
@@ -887,6 +893,10 @@ class TradeManagerBot:
     def start_management(self):
         """بدء إدارة الصفقات"""
         try:
+            margin_info = self.margin_monitor.check_margin_health(self.client)
+            if margin_info:
+                logger.info(f"✅ التصحيح: نسبة الهامش الحقيقية: {margin_info['margin_ratio']:.2%}")
+            
             # ✅ أولاً: تصحيح الأخطاء
             self.trade_manager.debug_active_positions()
             
