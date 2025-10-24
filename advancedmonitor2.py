@@ -35,9 +35,9 @@ RISK_SETTINGS = {
     'margin_risk_threshold': 0.7,
     'position_reduction': 0.5,
     # ✅ إعدادات وقف الخسارة المزدوج الديناميكي
-    'partial_stop_ratio': 0.5,      # 50% من المسافة للدعم
+    'partial_stop_ratio': 0.75,      # 50% من المسافة للدعم
     'full_stop_ratio': 1.0,         # 100% من المسافة للدعم (الوقف الأصلي)
-    'partial_close_ratio': 0.5      # إغلاق 50% في المرحلة الأولى
+    'partial_close_ratio': 0.4      # إغلاق 50% في المرحلة الأولى
 }
 
 TAKE_PROFIT_LEVELS = {
