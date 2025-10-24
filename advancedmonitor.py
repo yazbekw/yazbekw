@@ -256,7 +256,8 @@ class DynamicTakeProfit:
                     'quantity': None
                 }
             
-            logger.info(f"🎯 جني الأرباح لـ {symbol}: {[f'{level}: {config["price"]:.4f}' for level, config in take_profit_levels.items()]}")
+            tp_info = [f'{level}: {config["price"]:.4f}' for level, config in take_profit_levels.items()]
+            logger.info(f"🎯 جني الأرباح لـ {symbol}: {tp_info}")
             return take_profit_levels
             
         except Exception as e:
