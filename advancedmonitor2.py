@@ -44,9 +44,9 @@ RISK_SETTINGS = {
 }
 
 TAKE_PROFIT_LEVELS = {
-    'LEVEL_1': {'target': 0.0025, 'allocation': 0.4},
-    'LEVEL_2': {'target': 0.0035, 'allocation': 0.3},
-    'LEVEL_3': {'target': 0.0050, 'allocation': 0.3}
+    'LEVEL_1': {'target': 0.0025, 'allocation': 0.5},
+    'LEVEL_2': {'target': 0.0035, 'allocation': 0.5},
+    'LEVEL_3': {'target': 0.0050, 'allocation': 0.0}
 }
 
 damascus_tz = pytz.timezone('Asia/Damascus')
@@ -209,7 +209,7 @@ class DynamicStopLoss:
             return df_default
     
     def calculate_dynamic_stop_loss(self, symbol, entry_price, direction, df):
-        """حساب وقف الخسارة المزدوج الديناميكي مع الحد الأدنى"""
+        """حساب وقف الخسارة المزدوج الديناميكي مع الحد الأدنى - مصحح"""
         try:
             current_atr = df['atr'].iloc[-1] if not df.empty and not pd.isna(df['atr'].iloc[-1]) else entry_price * 0.01
         
@@ -224,27 +224,35 @@ class DynamicStopLoss:
                 min_stop_loss = entry_price * (1 - RISK_SETTINGS['min_stop_loss_pct'])
                 max_stop_loss = entry_price * (1 - RISK_SETTINGS['max_stop_loss_pct'])
             
-                # ✅ التأكد من أن وقف الخسارة ليس أقرب من الحد الأدنى
+                # ✅ التأكد من أن وقف الخسارة الكامل ليس أقرب من الحد الأدنى
                 if full_stop_loss > min_stop_loss:
-                    logger.info(f"🔧 تعديل وقف الخسارة للحد الأدنى: {RISK_SETTINGS['min_stop_loss_pct']*100}%")
+                    logger.info(f"🔧 تعديل وقف الخسارة الكامل للحد الأدنى: {RISK_SETTINGS['min_stop_loss_pct']*100}%")
                     full_stop_loss = min_stop_loss
-                    # إعادة حساب الوقف الجزئي بناءً على الجديد
-                    partial_stop_loss = entry_price - ((entry_price - full_stop_loss) * RISK_SETTINGS['partial_stop_ratio'])
             
-                # ✅ التأكد من أن وقف الخسارة ليس أبعد من الحد الأقصى
+                # ✅ التأكد من أن وقف الخسارة الكامل ليس أبعد من الحد الأقصى
                 if full_stop_loss < max_stop_loss:
-                    logger.info(f"🔧 تعديل وقف الخسارة للحد الأقصى: {RISK_SETTINGS['max_stop_loss_pct']*100}%")
+                    logger.info(f"🔧 تعديل وقف الخسارة الكامل للحد الأقصى: {RISK_SETTINGS['max_stop_loss_pct']*100}%")
                     full_stop_loss = max_stop_loss
-                    # إعادة حساب الوقف الجزئي بناءً على الجديد
-                    partial_stop_loss = entry_price - ((entry_price - full_stop_loss) * RISK_SETTINGS['partial_stop_ratio'])
+            
+                # ✅ الآن إعادة حساب الوقف الجزئي بناءً على الكامل المصحح
+                partial_stop_loss = entry_price - ((entry_price - full_stop_loss) * RISK_SETTINGS['partial_stop_ratio'])
+            
+                # ✅ التأكد من أن الوقف الجزئي أيضاً ليس أقرب من نسبة معقولة (60% من مسافة الكامل)
+                full_stop_distance = entry_price - full_stop_loss
+                min_partial_distance = full_stop_distance * 0.6  # 60% من مسافة الوقف الكامل
+                current_partial_distance = entry_price - partial_stop_loss
+            
+                if current_partial_distance < min_partial_distance:
+                    logger.info(f"🔧 تعديل الوقف الجزئي ليكون على مسافة معقولة: {min_partial_distance/entry_price*100:.2f}%")
+                    partial_stop_loss = entry_price - min_partial_distance
             
                 # ✅ حدود أمان إضافية
-                full_stop_loss = min(full_stop_loss, entry_price * 0.99)   # لا يزيد عن 1% خسارة
-                partial_stop_loss = min(partial_stop_loss, entry_price * 0.995)  # لا يزيد عن 0.5% خسارة
+                full_stop_loss = min(full_stop_loss, entry_price * 0.98)   # لا يزيد عن 2% خسارة
+                partial_stop_loss = min(partial_stop_loss, entry_price * 0.99)  # لا يزيد عن 1% خسارة
             
                 # ✅ منع القيم غير المنطقية
-                full_stop_loss = max(full_stop_loss, entry_price * 0.95)   # لا يقل عن 5% خسارة
-                partial_stop_loss = max(partial_stop_loss, entry_price * 0.98)   # لا يقل عن 2% خسارة
+                full_stop_loss = max(full_stop_loss, entry_price * 0.90)   # لا يقل عن 10% خسارة
+                partial_stop_loss = max(partial_stop_loss, entry_price * 0.95)   # لا يقل عن 5% خسارة
             
             else:  # SHORT
                 resistance_level = df['resistance'].iloc[-1]
@@ -257,30 +265,41 @@ class DynamicStopLoss:
                 min_stop_loss = entry_price * (1 + RISK_SETTINGS['min_stop_loss_pct'])
                 max_stop_loss = entry_price * (1 + RISK_SETTINGS['max_stop_loss_pct'])
             
-                # ✅ التأكد من أن وقف الخسارة ليس أقرب من الحد الأدنى
+                # ✅ التأكد من أن وقف الخسارة الكامل ليس أقرب من الحد الأدنى
                 if full_stop_loss < min_stop_loss:
-                    logger.info(f"🔧 تعديل وقف الخسارة للحد الأدنى: {RISK_SETTINGS['min_stop_loss_pct']*100}%")
+                    logger.info(f"🔧 تعديل وقف الخسارة الكامل للحد الأدنى: {RISK_SETTINGS['min_stop_loss_pct']*100}%")
                     full_stop_loss = min_stop_loss
-                    # إعادة حساب الوقف الجزئي بناءً على الجديد
-                    partial_stop_loss = entry_price + ((full_stop_loss - entry_price) * RISK_SETTINGS['partial_stop_ratio'])
             
-                # ✅ التأكد من أن وقف الخسارة ليس أبعد من الحد الأقصى
+                # ✅ التأكد من أن وقف الخسارة الكامل ليس أبعد من الحد الأقصى
                 if full_stop_loss > max_stop_loss:
-                    logger.info(f"🔧 تعديل وقف الخسارة للحد الأقصى: {RISK_SETTINGS['max_stop_loss_pct']*100}%")
+                    logger.info(f"🔧 تعديل وقف الخسارة الكامل للحد الأقصى: {RISK_SETTINGS['max_stop_loss_pct']*100}%")
                     full_stop_loss = max_stop_loss
-                    # إعادة حساب الوقف الجزئي بناءً على الجديد
-                    partial_stop_loss = entry_price + ((full_stop_loss - entry_price) * RISK_SETTINGS['partial_stop_ratio'])
+            
+                # ✅ الآن إعادة حساب الوقف الجزئي بناءً على الكامل المصحح
+                partial_stop_loss = entry_price + ((full_stop_loss - entry_price) * RISK_SETTINGS['partial_stop_ratio'])
+            
+                # ✅ التأكد من أن الوقف الجزئي أيضاً ليس أقرب من نسبة معقولة (60% من مسافة الكامل)
+                full_stop_distance = full_stop_loss - entry_price
+                min_partial_distance = full_stop_distance * 0.6  # 60% من مسافة الوقف الكامل
+                current_partial_distance = partial_stop_loss - entry_price
+            
+                if current_partial_distance < min_partial_distance:
+                    logger.info(f"🔧 تعديل الوقف الجزئي ليكون على مسافة معقولة: {min_partial_distance/entry_price*100:.2f}%")
+                    partial_stop_loss = entry_price + min_partial_distance
             
                 # ✅ حدود أمان إضافية
-                full_stop_loss = max(full_stop_loss, entry_price * 1.01)   # لا يزيد عن 1% خسارة
-                partial_stop_loss = max(partial_stop_loss, entry_price * 1.005)  # لا يزيد عن 0.5% خسارة
+                full_stop_loss = max(full_stop_loss, entry_price * 1.02)   # لا يزيد عن 2% خسارة
+                partial_stop_loss = max(partial_stop_loss, entry_price * 1.01)  # لا يزيد عن 1% خسارة
             
                 # ✅ منع القيم غير المنطقية
-                full_stop_loss = min(full_stop_loss, entry_price * 1.05)   # لا يقل عن 5% خسارة
-                partial_stop_loss = min(partial_stop_loss, entry_price * 1.02)   # لا يقل عن 2% خسارة
+                full_stop_loss = min(full_stop_loss, entry_price * 1.10)   # لا يقل عن 10% خسارة
+                partial_stop_loss = min(partial_stop_loss, entry_price * 1.05)   # لا يقل عن 5% خسارة
         
-            logger.info(f"💰 وقف الخسارة المزدوج لـ {symbol}: جزئي={partial_stop_loss:.4f}, كامل={full_stop_loss:.4f}")
-            logger.info(f"📊 المسافات: جزئي={abs(entry_price-partial_stop_loss)/entry_price*100:.2f}%, كامل={abs(entry_price-full_stop_loss)/entry_price*100:.2f}%")
+            # ✅ حساب النسب المئوية النهائية للتسجيل
+            partial_pct = abs(entry_price - partial_stop_loss) / entry_price * 100
+            full_pct = abs(entry_price - full_stop_loss) / entry_price * 100
+        
+            logger.info(f"💰 وقف الخسارة المزدوج لـ {symbol}: جزئي={partial_stop_loss:.4f} ({partial_pct:.2f}%), كامل={full_stop_loss:.4f} ({full_pct:.2f}%)")
         
             return {
                 'partial_stop_loss': partial_stop_loss,
@@ -293,13 +312,13 @@ class DynamicStopLoss:
             if direction == 'LONG':
                 min_stop = entry_price * (1 - RISK_SETTINGS.get('min_stop_loss_pct', 0.015))
                 return {
-                    'partial_stop_loss': min_stop * 0.998,
+                    'partial_stop_loss': min_stop * 0.995,  # جزئي أقرب قليلاً (0.5% من الحد الأدنى)
                     'full_stop_loss': min_stop
                 }
             else:
                 min_stop = entry_price * (1 + RISK_SETTINGS.get('min_stop_loss_pct', 0.015))
                 return {
-                    'partial_stop_loss': min_stop * 1.002,
+                    'partial_stop_loss': min_stop * 1.005,  # جزئي أقرب قليلاً (0.5% من الحد الأدنى)
                     'full_stop_loss': min_stop
                 }
 
