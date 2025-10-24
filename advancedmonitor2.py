@@ -1233,6 +1233,8 @@ class TradeManagerBot:
         """حلقة الإدارة الرئيسية"""
         last_report_time = datetime.now(damascus_tz)
         last_sync_time = datetime.now(damascus_tz)
+        last_margin_warning_time = datetime.now(damascus_tz)
+        margin_warning_sent = False  # ⬅️ تتبع إذا تم إرسال تحذير
     
         while True:
             try:
@@ -1243,8 +1245,29 @@ class TradeManagerBot:
                 # مراقبة الهامش كل دقيقة
                 if (current_time - last_sync_time).seconds >= 60:
                     margin_health = self.trade_manager.margin_monitor.check_margin_health(self.trade_manager.client)
+                
                     if margin_health and margin_health['is_risk_high']:
-                       logger.warning(f"🚨 مستوى خطورة مرتفع: {margin_health['margin_ratio']:.2%}")
+                        logger.warning(f"🚨 مستوى خطورة مرتفع: {margin_health['margin_ratio']:.2%}")
+                    
+                        # ✅ إرسال إشعار فوري عند أول ظهور للخطر
+                        if not margin_warning_sent:
+                            logger.info("📨 إرسال إشعار خطر الهامش الفوري...")
+                            self.trade_manager.send_margin_warning(margin_health)
+                            margin_warning_sent = True
+                            last_margin_warning_time = current_time
+                    
+                        # ✅ إرسال إشعار متكرر كل دقيقة أثناء استمرار الخطر
+                        elif (current_time - last_margin_warning_time).seconds >= 60:
+                            logger.info("📨 إرسال إشعار خطر الهامش المتكرر...")
+                            self.trade_manager.send_margin_warning(margin_health)
+                            last_margin_warning_time = current_time
+                
+                    else:
+                        # ✅ إعادة تعيين عند عودة الهامش لمستوى آمن
+                        if margin_warning_sent:
+                            logger.info("✅ مستوى الهامش عاد إلى الوضع الآمن")
+                            margin_warning_sent = False
+                
                     last_sync_time = current_time
             
                 # مزامنة الصفقات كل 5 دقائق
