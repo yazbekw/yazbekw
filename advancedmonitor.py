@@ -893,7 +893,7 @@ class TradeManagerBot:
     def start_management(self):
         """بدء إدارة الصفقات"""
         try:
-            margin_info = self.margin_monitor.check_margin_health(self.client)
+            margin_info = self.trade_manager.margin_monitor.check_margin_health(self.client)            
             if margin_info:
                 logger.info(f"✅ التصحيح: نسبة الهامش الحقيقية: {margin_info['margin_ratio']:.2%}")
             
