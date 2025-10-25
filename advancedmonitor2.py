@@ -497,43 +497,46 @@ class CompleteTradeManager:
             return None
     
     def get_active_positions_from_binance(self):
-        """الحصول على الصفقات النشطة من Binance"""
+        """الحصول على الصفقات النشطة من Binance - مصححة"""
         try:
             positions = self.client.futures_account()['positions']
             active_positions = []
-            
-            logger.info(f"🔍 جاري فحص {len(positions)} مركز")
-            
+        
+            logger.info(f"🔍 جاري فحص {len(positions)} مركز في Binance")
+        
             for position in positions:
                 symbol = position['symbol']
                 position_amt = float(position['positionAmt'])
-                
+                entry_price = float(position['entryPrice'])
+            
+                # ✅ تسجيل تفصيلي لكل عملة مدعومة
                 if symbol in TRADING_SETTINGS['symbols']:
-                    logger.info(f"🔍 فحص {symbol}: الكمية = {position_amt}")
-                
+                    logger.info(f"🔍 {symbol}: الكمية = {position_amt}, السعر = {entry_price}")
+            
+                # ✅ الشرط المصحح: يجب أن تكون الكمية ≠ 0 والعملة مدعومة
                 if position_amt != 0 and symbol in TRADING_SETTINGS['symbols']:
                     active_positions.append({
                         'symbol': symbol,
                         'quantity': abs(position_amt),
-                        'entry_price': float(position['entryPrice']),
+                        'entry_price': entry_price,
                         'direction': 'LONG' if position_amt > 0 else 'SHORT',
                         'leverage': int(position['leverage']),
                         'unrealized_pnl': float(position['unrealizedProfit']),
                         'position_amt': position_amt
                     })
                     logger.info(f"✅ تم رصد صفقة نشطة: {symbol} | الاتجاه: {'LONG' if position_amt > 0 else 'SHORT'} | الكمية: {abs(position_amt)}")
-            
-            logger.info(f"✅ تم العثور على {len(active_positions)} صفقة نشطة")
+        
+            logger.info(f"✅ تم العثور على {len(active_positions)} صفقة نشطة: {[pos['symbol'] for pos in active_positions]}")
             return active_positions
-            
+        
         except Exception as e:
             logger.error(f"❌ خطأ في الحصول على الصفقات من Binance: {e}")
             return []
     
     def sync_with_binance_positions(self):
-        """مزامنة الصفقات مع Binance"""
+        """مزامنة الصفقات مع Binance - مصححة"""
         try:
-            self.debug_active_positions()
+            logger.info("🔄 بدء مزامنة الصفقات مع Binance...")
         
             active_positions = self.get_active_positions_from_binance()
             current_managed = set(self.managed_trades.keys())
@@ -541,26 +544,26 @@ class CompleteTradeManager:
         
             logger.info(f"🔄 المزامنة: {len(active_positions)} صفقة في Binance, {len(current_managed)} صفقة مدارة")
         
+            # ✅ إضافة الصفقات الجديدة
             added_count = 0
             for position in active_positions:
-                if position['symbol'] not in current_managed:
-                    logger.info(f"🔄 إضافة صفقة جديدة للمراقبة: {position['symbol']}")
+                symbol = position['symbol']
+                if symbol not in current_managed:
+                    logger.info(f"🔄 إضافة صفقة جديدة للمراقبة: {symbol}")
                 
-                    df = self.get_price_data(position['symbol'])
+                    # ✅ الحصول على بيانات السعر أولاً
+                    df = self.get_price_data(symbol)
                     if df is not None and not df.empty:
                         success = self.manage_new_trade(position)
                         if success:
-                            logger.info(f"✅ بدء إدارة {position['symbol']} بنجاح")
+                            logger.info(f"✅ بدء إدارة {symbol} بنجاح")
                             added_count += 1
                         else:
-                            logger.error(f"❌ فشل بدء إدارة {position['symbol']}")
+                            logger.error(f"❌ فشل بدء إدارة {symbol}")
                     else:
-                        logger.warning(f"⚠️ لا يمكن إدارة {position['symbol']} - بيانات السعر غير متوفرة")
-            
-                else:
-                    # ✅ تحديث التوزيع للصفقات الحالية
-                    self.update_take_profit_allocation(position['symbol'])
+                        logger.warning(f"⚠️ لا يمكن إدارة {symbol} - بيانات السعر غير متوفرة")
         
+            # ✅ إزالة الصفقات المغلقة
             removed_count = 0
             for symbol in list(current_managed):
                 if symbol not in binance_symbols:
@@ -1191,22 +1194,25 @@ class TradeManagerBot:
             return False
     
     def start_management(self):
-        """بدء إدارة الصفقات"""
+        """بدء إدارة الصفقات - مصححة"""
         try:
             # ✅ اختبار Telegram أولاً
             telegram_ok = self.test_telegram_connection()
             if not telegram_ok:
                 logger.error("🚨 تحذير: إشعارات Telegram لا تعمل، لكن البوت سيستمر في العمل")
-            
+        
+            # ✅ مزامنة فورية عند البدء
+            logger.info("🔄 تشغيل المزامنة الفورية عند البدء...")
+            active_count = self.trade_manager.sync_with_binance_positions()
+        
             margin_info = self.trade_manager.margin_monitor.check_margin_health(self.client)            
             if margin_info:
                 logger.info(f"✅ نسبة الهامش: {margin_info['margin_ratio']:.2%}")
-            
+        
             self.trade_manager.debug_active_positions()
-            
-            active_count = self.trade_manager.sync_with_binance_positions()
+        
             logger.info(f"🔄 بدء إدارة {active_count} صفقة نشطة")
-            
+        
             if self.notifier and telegram_ok:
                 message = (
                     f"🚀 <b>بدء تشغيل مدير الصفقات المتكامل</b>\n"
@@ -1216,66 +1222,47 @@ class TradeManagerBot:
                     f"تقنية جني الأرباح: 3 مستويات مع تعديل التقلب\n"
                     f"🛡️ نظام الوقف المزدوج: جزئي + كامل\n"
                     f"المراقبة: كل 10 ثواني\n"
-                    f"المزامنة: تلقائية مع Binance\n"
+                    f"المزامنة: تلقائية مع Binance كل 30 ثانية\n"
                     f"الصفقات النشطة: {active_count}\n"
                     f"الحالة: جاهز للمراقبة ✅\n"
                     f"الوقت: {datetime.now(damascus_tz).strftime('%Y-%m-%d %H:%M:%S')}"
                 )
                 self.notifier.send_message(message)
-            
+        
             return True
-            
+        
         except Exception as e:
             logger.error(f"❌ خطأ في بدء الإدارة: {e}")
             return False
     
     def management_loop(self):
-        """حلقة الإدارة الرئيسية"""
+        """حلقة الإدارة الرئيسية - مصححة"""
         last_report_time = datetime.now(damascus_tz)
         last_sync_time = datetime.now(damascus_tz)
-        last_margin_warning_time = datetime.now(damascus_tz)
-        margin_warning_sent = False  # ⬅️ تتبع إذا تم إرسال تحذير
+        last_margin_check = datetime.now(damascus_tz)
     
         while True:
             try:
                 current_time = datetime.now(damascus_tz)
             
+                # ✅ فحص الصفقات المدارة أولاً
                 self.trade_manager.check_managed_trades()
             
-                # مراقبة الهامش كل دقيقة
-                if (current_time - last_sync_time).seconds >= 60:
-                    margin_health = self.trade_manager.margin_monitor.check_margin_health(self.trade_manager.client)
-                
-                    if margin_health and margin_health['is_risk_high']:
-                        logger.warning(f"🚨 مستوى خطورة مرتفع: {margin_health['margin_ratio']:.2%}")
-                    
-                        # ✅ إرسال إشعار فوري عند أول ظهور للخطر
-                        if not margin_warning_sent:
-                            logger.info("📨 إرسال إشعار خطر الهامش الفوري...")
-                            self.trade_manager.send_margin_warning(margin_health)
-                            margin_warning_sent = True
-                            last_margin_warning_time = current_time
-                    
-                        # ✅ إرسال إشعار متكرر كل دقيقة أثناء استمرار الخطر
-                        elif (current_time - last_margin_warning_time).seconds >= 60:
-                            logger.info("📨 إرسال إشعار خطر الهامش المتكرر...")
-                            self.trade_manager.send_margin_warning(margin_health)
-                            last_margin_warning_time = current_time
-                
-                    else:
-                        # ✅ إعادة تعيين عند عودة الهامش لمستوى آمن
-                        if margin_warning_sent:
-                            logger.info("✅ مستوى الهامش عاد إلى الوضع الآمن")
-                            margin_warning_sent = False
-                
-                    last_sync_time = current_time
-            
-                # مزامنة الصفقات كل 5 دقائق
-                if (current_time - last_sync_time).seconds >= 300:
+                # ✅ المزامنة كل 30 ثانية بدلاً من 5 دقائق
+                if (current_time - last_sync_time).seconds >= 30:
+                    logger.info("🔄 تشغيل المزامنة الدورية مع Binance...")
                     self.trade_manager.sync_with_binance_positions()
                     last_sync_time = current_time
             
-                # تقرير الأداء كل 6 ساعات
+                # ✅ فحص الهامش كل دقيقة
+                if (current_time - last_margin_check).seconds >= 60:
+                    margin_health = self.trade_manager.margin_monitor.check_margin_health(self.client)
+                    if margin_health and margin_health['is_risk_high']:
+                        logger.warning(f"⚠️ نسبة الهامش مرتفعة: {margin_health['margin_ratio']:.2%}")
+                        self.trade_manager.send_margin_warning(margin_health)
+                    last_margin_check = current_time
+            
+                # ✅ تقرير الأداء كل 6 ساعات
                 if (current_time - last_report_time).seconds >= 21600:
                     self.trade_manager.send_performance_report()
                     last_report_time = current_time
@@ -1287,7 +1274,8 @@ class TradeManagerBot:
                 break
             except Exception as e:
                 logger.error(f"❌ خطأ في حلقة الإدارة: {e}")
-                time.sleep(30)
+                time.sleep(30)             
+            
 
 # ========== واجهة Flask ==========
 
@@ -1307,7 +1295,41 @@ def update_take_profit_allocation(symbol):
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
-    
+
+@app.route('/api/debug/check-positions')
+def debug_check_positions():
+    """فحص تفصيلي للمراكز"""
+    try:
+        bot = TradeManagerBot.get_instance()
+        
+        # فحص مباشر من Binance
+        positions = bot.client.futures_account()['positions']
+        detailed_info = []
+        
+        for position in positions:
+            symbol = position['symbol']
+            position_amt = float(position['positionAmt'])
+            
+            if symbol in TRADING_SETTINGS['symbols']:
+                detailed_info.append({
+                    'symbol': symbol,
+                    'positionAmt': position_amt,
+                    'entryPrice': float(position['entryPrice']),
+                    'unrealizedProfit': float(position['unrealizedProfit']),
+                    'is_active': position_amt != 0,
+                    'in_managed': symbol in bot.trade_manager.managed_trades
+                })
+        
+        return jsonify({
+            'success': True,
+            'positions': detailed_info,
+            'managed_trades': list(bot.trade_manager.managed_trades.keys()),
+            'timestamp': datetime.now(damascus_tz).isoformat()
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
 @app.route('/')
 def health_check():
     """فحص صحة البوت"""
