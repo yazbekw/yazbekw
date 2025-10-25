@@ -42,9 +42,9 @@ RISK_SETTINGS = {
 }
 
 TAKE_PROFIT_LEVELS = {
-    'LEVEL_1': {'target': 0.0025, 'allocation': 0.5},
-    'LEVEL_2': {'target': 0.0030, 'allocation': 0.3},
-    'LEVEL_3': {'target': 0.0035, 'allocation': 0.2}
+    'LEVEL_1': {'target': 0.0020, 'allocation': 0.5},
+    'LEVEL_2': {'target': 0.0024, 'allocation': 0.3},
+    'LEVEL_3': {'target': 0.0025, 'allocation': 0.2}
 }
 
 damascus_tz = pytz.timezone('Asia/Damascus')
