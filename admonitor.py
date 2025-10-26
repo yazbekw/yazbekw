@@ -430,6 +430,9 @@ class CompleteTradeManager:
         }
         self.last_heartbeat = datetime.now(damascus_tz)  # ⭐ تتبع آخر نبضة
         self.symbols_info = {}  # ⭐ تخزين معلومات الرموز لدقة الكميات
+        self.price_cache = {}  # ⭐ كاش للأسعار
+        self.cache_timeout = 30  # ⭐ ثواني قبل انتهاء صلاحية الكاش
+        self.last_api_call = {}  # ⭐ تتبع آخر طلب API
     
     def get_symbol_info(self, symbol):
         """الحصول على معلومات الرمز من Binance مرة واحدة وتخزينها"""
@@ -541,34 +544,65 @@ class CompleteTradeManager:
             logger.error(f"❌ خطأ في تصحيح المراكز: {e}")
             return 0
     
-    def get_price_data(self, symbol, interval='15m', limit=50):
-        """الحصول على بيانات السعر"""
+    def get_price_data(self, symbol, interval='15m', limit=20):  # ⭐ تقليل الحد من 50 إلى 20
+        """الحصول على بيانات السعر مع تقليل الطلبات"""
         try:
+            # ⭐ تأخير عشوائي لتجنب الطلبات المتزامنة
+            time.sleep(np.random.uniform(1, 2))
+        
             klines = self.client.futures_klines(
                 symbol=symbol, 
                 interval=interval, 
                 limit=limit
             )
-            
+        
             df = pd.DataFrame(klines, columns=[
                 'timestamp', 'open', 'high', 'low', 'close', 'volume',
                 'close_time', 'quote_asset_volume', 'number_of_trades',
                 'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'
             ])
-            
+        
             for col in ['open', 'high', 'low', 'close']:
                 df[col] = pd.to_numeric(df[col])
-            
+        
             return df
         except Exception as e:
             logger.error(f"❌ خطأ في الحصول على بيانات السعر لـ {symbol}: {e}")
             return None
     
     def get_current_price(self, symbol):
-        """الحصول على السعر الحالي"""
+        """الحصول على السعر الحالي مع نظام كاش"""
         try:
+            current_time = time.time()
+            
+            # ⭐ التحقق من الكاش أولاً
+            if (symbol in self.price_cache and 
+                current_time - self.price_cache[symbol]['timestamp'] < self.cache_timeout):
+                return self.price_cache[symbol]['price']
+            
+            # ⭐ التحقق من آخر طلب API لتجنب Rate Limit
+            if symbol in self.last_api_call:
+                time_since_last_call = current_time - self.last_api_call[symbol]
+                if time_since_last_call < 1:  # طلب واحد في الثانية كحد أدنى
+                    time.sleep(1 - time_since_last_call)
+            
+            # ⭐ تأخير عشوائي إضافي
+            time.sleep(np.random.uniform(0.5, 1.0))
+            
             ticker = self.client.futures_symbol_ticker(symbol=symbol)
-            return float(ticker['price'])
+            price = float(ticker['price'])
+            
+            # ⭐ تحديث الكاش
+            self.price_cache[symbol] = {
+                'price': price,
+                'timestamp': current_time
+            }
+            
+            # ⭐ تحديث آخر طلب API
+            self.last_api_call[symbol] = current_time
+            
+            return price
+            
         except Exception as e:
             logger.error(f"❌ خطأ في الحصول على سعر {symbol}: {e}")
             return None
@@ -608,9 +642,14 @@ class CompleteTradeManager:
             return []
     
     def sync_with_binance_positions(self):
-        """مزامنة الصفقات مع Binance مع تحسين اكتشاف المراكز المغلقة"""
+        """مزامنة الصفقات مع Binance مع تقليل الطلبات"""
         try:
-            self.debug_active_positions()
+            # ⭐ تأخير عشوائي قبل البدء
+            time.sleep(np.random.uniform(2, 5))
+        
+            # ⭐ استخدام التصحيح فقط عند الحاجة (ليس في كل مزامنة)
+            if len(self.managed_trades) == 0:
+                self.debug_active_positions()
         
             active_positions = self.get_active_positions_from_binance()
             current_managed = set(self.managed_trades.keys())
@@ -618,34 +657,30 @@ class CompleteTradeManager:
         
             logger.info(f"🔄 المزامنة: {len(active_positions)} صفقة في Binance, {len(current_managed)} صفقة مدارة")
         
-            # ⭐ أولاً: إزالة الصفقات التي لم تعد موجودة في Binance
-            removed_count = 0
-            for symbol in list(current_managed):
-                if symbol not in binance_symbols:
-                    logger.info(f"🔄 إزالة صفقة مغلقة: {symbol}")
-                    if symbol in self.managed_trades:
-                        del self.managed_trades[symbol]
-                        removed_count += 1
-        
-            # ⭐ ثانياً: إضافة الصفقات الجديدة
+            # ⭐ تقليل التسجيل التفصيلي
             added_count = 0
             for position in active_positions:
                 if position['symbol'] not in current_managed:
-                    logger.info(f"🔄 إضافة صفقة جديدة للمراقبة: {position['symbol']}")
+                    logger.info(f"🔄 إضافة صفقة جديدة: {position['symbol']}")
                 
                     df = self.get_price_data(position['symbol'])
                     if df is not None and not df.empty:
                         success = self.manage_new_trade(position)
                         if success:
-                            logger.info(f"✅ بدء إدارة {position['symbol']} بنجاح")
                             added_count += 1
-                        
-                            # إرسال إشعار اكتشاف صفقة جديدة
                             self.send_trade_discovery_notification(position)
                         else:
                             logger.error(f"❌ فشل بدء إدارة {position['symbol']}")
-                    else:
-                        logger.warning(f"⚠️ لا يمكن إدارة {position['symbol']} - بيانات السعر غير متوفرة")
+                
+                    # ⭐ تأخير بين إضافة الصفقات الجديدة
+                    time.sleep(3)
+        
+            removed_count = 0
+            for symbol in list(current_managed):
+                if symbol not in binance_symbols:
+                    if symbol in self.managed_trades:
+                        del self.managed_trades[symbol]
+                        removed_count += 1
         
             logger.info(f"🔄 انتهت المزامنة: أضيف {added_count}، أزيل {removed_count}")
             return len(active_positions)
@@ -721,9 +756,10 @@ class CompleteTradeManager:
             return False
     
     def check_managed_trades(self):
-        """فحص جميع الصفقات المدارة مع التحقق من المراكز الفعلية"""
+        """فحص الصفقات المدارة مع تقليل الطلبات"""
         closed_trades = []
     
+        # ⭐ إضافة تأخير بين فحص كل صفقة
         for symbol, trade in list(self.managed_trades.items()):
             try:
                 # ⭐ التحقق أولاً من أن المركز لا يزال موجوداً في Binance
@@ -735,11 +771,13 @@ class CompleteTradeManager:
                     closed_trades.append(symbol)
                     continue
             
+                # ⭐ الحصول على السعر الحالي مع معالجة الأخطاء
                 current_price = self.get_current_price(symbol)
                 if not current_price:
+                    time.sleep(1)  # تأخير بسيط قبل المحاولة التالية
                     continue
             
-                # 1. ⭐ أولاً: فحص انتهاء وقت الصفقة
+                # 1. فحص انتهاء وقت الصفقة
                 if self.check_trade_timeout(symbol):
                     closed_trades.append(symbol)
                     continue
@@ -752,12 +790,16 @@ class CompleteTradeManager:
                 # 3. فحص جني الأرباح
                 self.check_take_profits(symbol, current_price)
             
-                # 4. تحديث المستويات الديناميكية كل ساعة
+                # 4. تحديث المستويات الديناميكية كل ساعة (بدلاً من كل فحص)
                 if (datetime.now(damascus_tz) - trade['last_update']).seconds > 3600:
                     self.update_dynamic_levels(symbol)
             
+                # ⭐ تأخير بين فحص الصفقات لتقليل الطلبات
+                time.sleep(2)
+            
             except Exception as e:
                 logger.error(f"❌ خطأ في فحص الصفقة {symbol}: {e}")
+                time.sleep(5)  # تأخير أطول عند الأخطاء
     
         return closed_trades
     
@@ -1068,17 +1110,24 @@ class CompleteTradeManager:
         self.managed_trades[symbol]['last_update'] = datetime.now(damascus_tz)
     
     def monitor_margin_risk(self):
-        """مراقبة مخاطر الهامش"""
-        margin_health = self.margin_monitor.check_margin_health(self.client)
+        """مراقبة مخاطر الهامش مع تقليل التكرار"""
+        try:
+            # ⭐ إضافة تأخير عشوائي لتجنب الطلبات المتزامنة
+            time.sleep(np.random.uniform(1, 3))
         
-        if margin_health and margin_health['is_risk_high']:
-            logger.warning(f"🚨 مستوى خطورة مرتفع: {margin_health['margin_ratio']:.2%}")
+            margin_health = self.margin_monitor.check_margin_health(self.client)
+        
+            if margin_health and margin_health['is_risk_high']:
+                logger.warning(f"🚨 مستوى خطورة مرتفع: {margin_health['margin_ratio']:.2%}")
             
-            # إرسال تحذير الهامش
-            self.send_margin_warning(margin_health)
-                
-            return True
-        return False
+                # إرسال تحذير الهامش
+                self.send_margin_warning(margin_health)
+                return True
+            return False
+        
+        except Exception as e:
+            logger.error(f"❌ خطأ في فحص الهامش: {e}")
+            return False
     
     def send_heartbeat(self):
         """⭐ إرسال نبضة حياة كل ساعتين"""
@@ -1420,39 +1469,48 @@ class TradeManagerBot:
             return False
     
     def management_loop(self):
-        """حلقة الإدارة الرئيسية"""
+        """حلقة الإدارة الرئيسية مع تقليل الطلبات"""
         last_report_time = datetime.now(damascus_tz)
         last_sync_time = datetime.now(damascus_tz)
-        
+        last_margin_check = datetime.now(damascus_tz)
+        last_heartbeat_time = datetime.now(damascus_tz)
+    
         while True:
             try:
                 current_time = datetime.now(damascus_tz)
-                
-                # ⭐ إرسال نبضة الحياة كل ساعتين
-                self.trade_manager.send_heartbeat()
-                
+            
+                # ⭐ إرسال نبضة الحياة كل ساعتين (بدلاً من كل دورة)
+                if (current_time - last_heartbeat_time).seconds >= 7200:
+                    self.trade_manager.send_heartbeat()
+                    last_heartbeat_time = current_time
+            
+                # ⭐ فحص الصفقات المدارة كل 30 ثانية (بدلاً من 10)
                 self.trade_manager.check_managed_trades()
-                
-                if (current_time - last_sync_time).seconds >= 60:
+            
+                # ⭐ مراقبة الهامش كل 5 دقائق (بدلاً من 60 ثانية)
+                if (current_time - last_margin_check).seconds >= 300:
                     self.trade_manager.monitor_margin_risk()
-                    last_sync_time = current_time
-                
-                if (current_time - last_sync_time).seconds >= 300:
+                    last_margin_check = current_time
+            
+                # ⭐ مزامنة الصفقات كل 10 دقائق (بدلاً من 5)
+                if (current_time - last_sync_time).seconds >= 600:
                     self.trade_manager.sync_with_binance_positions()
                     last_sync_time = current_time
-                
+            
+                # ⭐ تقرير الأداء كل 6 ساعات (يبقى كما هو)
                 if (current_time - last_report_time).seconds >= 21600:
                     self.trade_manager.send_performance_report()
                     last_report_time = current_time
-                
-                time.sleep(10)
-                
+            
+                # ⭐ زيادة وقت الانتظار بين الدورات
+                time.sleep(30)  # 30 ثانية بدلاً من 10
+            
             except KeyboardInterrupt:
                 logger.info("⏹️ إيقاف البوت يدوياً...")
                 break
             except Exception as e:
                 logger.error(f"❌ خطأ في حلقة الإدارة: {e}")
-                time.sleep(30)
+                time.sleep(60)  # انتظار أطول عند الأخطاء
 
 # ========== واجهة Flask ==========
 
