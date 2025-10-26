@@ -9,14 +9,13 @@ app = Flask(__name__)
 # إعداد التسجيل
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 
-# الروابط بدون الرابط الذاتي
+# الروابط الجديدة
 URLS = [
-    "https://yazbek-2-482e.onrender.com", 
-    "https://yazbek-3.onrender.com",
-    "https://scanner-zwlt.onrender.com",
-    "https://testnet-7t23.onrender.com",
-    "https://trade-manager-j8ur.onrender.com",
-    "https://trade-hbwj.onrender.com"
+    "https://scanner-iae7.onrender.com",
+    "https://applicant-7klo.onrender.com", 
+    "https://monitor-19ny.onrender.com",
+    "https://ping2-y7lo.onrender.com",
+    "https://ping1.onrender.com"
 ]
 
 def send_pings():
@@ -49,9 +48,12 @@ def home():
     <h1>🚀 بوت النبضات 1 يعمل</h1>
     <p>إرسال نبضات كل 3 دقائق إلى:</p>
     <ul>
-        <li>https://yazbek-2-482e.onrender.com</li>
-        <li>https://yazbek-3.onrender.com</li>
-        <li>https://crypto-scalping.onrender.com</li>
+        <li>https://scanner-iae7.onrender.com</li>
+        <li>https://applicant-7klo.onrender.com</li>
+        <li>https://monitor-19ny.onrender.com</li>
+        <li>https://ping2-y7lo.onrender.com</li>
+        <li>https://ping1.onrender.com</li>
+        <li>https://ping-y0gt.onrender.com</li>
     </ul>
     <p>⏰ معدل النبضات: كل 3 دقائق</p>
     <p>🟢 البوت يعمل في الخلفية</p>
