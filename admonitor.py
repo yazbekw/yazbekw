@@ -450,9 +450,22 @@ class CompleteTradeManager:
             return None
 
     def get_current_position(self, symbol):
-        """الحصول على المركز الحالي من Binance مباشرة"""
+        """الحصول على المركز الحالي من Binance مع تقليل الطلبات"""
         try:
+            current_time = time.time()
+        
+            # ⭐ التحقق من آخر طلب API للمراكز
+            if 'positions' in self.last_api_call:
+                time_since_last_call = current_time - self.last_api_call['positions']
+                if time_since_last_call < 3:  # ⭐ طلب واحد كل 3 ثواني للمراكز
+                    wait_time = 3 - time_since_last_call
+                    time.sleep(wait_time)
+        
             positions = self.client.futures_account()['positions']
+        
+            # ⭐ تحديث آخر طلب API
+            self.last_api_call['positions'] = current_time
+        
             for position in positions:
                 if position['symbol'] == symbol:
                     position_amt = float(position['positionAmt'])
