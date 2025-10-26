@@ -46,9 +46,9 @@ RISK_SETTINGS = {
 }
 
 TAKE_PROFIT_LEVELS = {
-    'LEVEL_1': {'target': 0.0025, 'allocation': 0.4},
-    'LEVEL_2': {'target': 0.0035, 'allocation': 0.3},
-    'LEVEL_3': {'target': 0.0050, 'allocation': 0.3}
+    'LEVEL_1': {'target': 0.0020, 'allocation': 0.5},
+    'LEVEL_2': {'target': 0.0030, 'allocation': 0.3},
+    'LEVEL_3': {'target': 0.0032, 'allocation': 0.2}
 }
 
 damascus_tz = pytz.timezone('Asia/Damascus')
@@ -445,6 +445,23 @@ class CompleteTradeManager:
         except Exception as e:
             logger.error(f"❌ خطأ في الحصول على معلومات الرمز {symbol}: {e}")
             return None
+
+    def get_current_position(self, symbol):
+        """الحصول على المركز الحالي من Binance مباشرة"""
+        try:
+            positions = self.client.futures_account()['positions']
+            for position in positions:
+                if position['symbol'] == symbol:
+                    position_amt = float(position['positionAmt'])
+                    return {
+                        'position_amt': position_amt,
+                        'entry_price': float(position['entryPrice']),
+                        'unrealized_pnl': float(position['unrealizedProfit'])
+                    }
+            return None
+        except Exception as e:
+            logger.error(f"❌ خطأ في الحصول على المركز لـ {symbol}: {e}")
+            return None
     
     def adjust_quantity_precision(self, symbol, quantity):
         """تصحيح دقة الكمية حسب متطلبات Binance"""
@@ -591,35 +608,17 @@ class CompleteTradeManager:
             return []
     
     def sync_with_binance_positions(self):
-        """مزامنة الصفقات مع Binance"""
+        """مزامنة الصفقات مع Binance مع تحسين اكتشاف المراكز المغلقة"""
         try:
             self.debug_active_positions()
-            
+        
             active_positions = self.get_active_positions_from_binance()
             current_managed = set(self.managed_trades.keys())
             binance_symbols = {pos['symbol'] for pos in active_positions}
-            
+        
             logger.info(f"🔄 المزامنة: {len(active_positions)} صفقة في Binance, {len(current_managed)} صفقة مدارة")
-            
-            added_count = 0
-            for position in active_positions:
-                if position['symbol'] not in current_managed:
-                    logger.info(f"🔄 إضافة صفقة جديدة للمراقبة: {position['symbol']}")
-                    
-                    df = self.get_price_data(position['symbol'])
-                    if df is not None and not df.empty:
-                        success = self.manage_new_trade(position)
-                        if success:
-                            logger.info(f"✅ بدء إدارة {position['symbol']} بنجاح")
-                            added_count += 1
-                            
-                            # ⭐ إرسال إشعار اكتشاف صفقة جديدة
-                            self.send_trade_discovery_notification(position)
-                        else:
-                            logger.error(f"❌ فشل بدء إدارة {position['symbol']}")
-                    else:
-                        logger.warning(f"⚠️ لا يمكن إدارة {position['symbol']} - بيانات السعر غير متوفرة")
-            
+        
+            # ⭐ أولاً: إزالة الصفقات التي لم تعد موجودة في Binance
             removed_count = 0
             for symbol in list(current_managed):
                 if symbol not in binance_symbols:
@@ -627,10 +626,30 @@ class CompleteTradeManager:
                     if symbol in self.managed_trades:
                         del self.managed_trades[symbol]
                         removed_count += 1
-            
+        
+            # ⭐ ثانياً: إضافة الصفقات الجديدة
+            added_count = 0
+            for position in active_positions:
+                if position['symbol'] not in current_managed:
+                    logger.info(f"🔄 إضافة صفقة جديدة للمراقبة: {position['symbol']}")
+                
+                    df = self.get_price_data(position['symbol'])
+                    if df is not None and not df.empty:
+                        success = self.manage_new_trade(position)
+                        if success:
+                            logger.info(f"✅ بدء إدارة {position['symbol']} بنجاح")
+                            added_count += 1
+                        
+                            # إرسال إشعار اكتشاف صفقة جديدة
+                            self.send_trade_discovery_notification(position)
+                        else:
+                            logger.error(f"❌ فشل بدء إدارة {position['symbol']}")
+                    else:
+                        logger.warning(f"⚠️ لا يمكن إدارة {position['symbol']} - بيانات السعر غير متوفرة")
+        
             logger.info(f"🔄 انتهت المزامنة: أضيف {added_count}، أزيل {removed_count}")
             return len(active_positions)
-            
+        
         except Exception as e:
             logger.error(f"❌ خطأ في المزامنة مع Binance: {e}")
             return 0
@@ -702,35 +721,44 @@ class CompleteTradeManager:
             return False
     
     def check_managed_trades(self):
-        """فحص جميع الصفقات المدارة"""
+        """فحص جميع الصفقات المدارة مع التحقق من المراكز الفعلية"""
         closed_trades = []
-        
+    
         for symbol, trade in list(self.managed_trades.items()):
             try:
+                # ⭐ التحقق أولاً من أن المركز لا يزال موجوداً في Binance
+                current_position = self.get_current_position(symbol)
+                if not current_position or current_position['position_amt'] == 0:
+                    logger.info(f"🔄 المركز أصبح صفراً لـ {symbol} - إزالة من الإدارة")
+                    if symbol in self.managed_trades:
+                        del self.managed_trades[symbol]
+                    closed_trades.append(symbol)
+                    continue
+            
                 current_price = self.get_current_price(symbol)
                 if not current_price:
                     continue
-                
+            
                 # 1. ⭐ أولاً: فحص انتهاء وقت الصفقة
                 if self.check_trade_timeout(symbol):
                     closed_trades.append(symbol)
                     continue
-                
+            
                 # 2. فحص وقف الخسارة
                 if self.check_stop_loss(symbol, current_price):
                     closed_trades.append(symbol)
                     continue
-                
+            
                 # 3. فحص جني الأرباح
                 self.check_take_profits(symbol, current_price)
-                
+            
                 # 4. تحديث المستويات الديناميكية كل ساعة
                 if (datetime.now(damascus_tz) - trade['last_update']).seconds > 3600:
                     self.update_dynamic_levels(symbol)
-                
+            
             except Exception as e:
                 logger.error(f"❌ خطأ في فحص الصفقة {symbol}: {e}")
-        
+    
         return closed_trades
     
     def check_trade_timeout(self, symbol):
@@ -818,108 +846,189 @@ class CompleteTradeManager:
                         self.performance_stats['profitable_trades'] += 1
     
     def close_partial_stop_loss(self, symbol, phase, config):
-        """إغلاق جزئي بسبب وقف الخسارة مع تصحيح الدقة"""
+        """إغلاق جزئي بسبب وقف الخسارة مع تصحيح الدقة والتحقق من المركز"""
         try:
+            if symbol not in self.managed_trades:
+                return False
+        
             trade = self.managed_trades[symbol]
             quantity = config['quantity']
-            
-            # ⭐ التحقق من الحد الأدنى للكمية
-            if not self.validate_quantity(symbol, quantity):
-                logger.error(f"❌ كمية غير صالحة لـ {symbol}: {quantity}")
+        
+            # ⭐ التحقق من المركز الحقيقي أولاً
+            current_position = self.get_current_position(symbol)
+            if not current_position or current_position['position_amt'] == 0:
+                logger.warning(f"⚠️ لا يوجد مركز نشط لـ {symbol}")
+                if symbol in self.managed_trades:
+                    del self.managed_trades[symbol]
                 return False
-            
+        
+            # ⭐ التحقق من أن الكمية لا تتجاوز المركز المتبقي
+            remaining_position = abs(current_position['position_amt'])
+            if quantity > remaining_position:
+                logger.warning(f"⚠️ ضبط الكمية لتتناسب مع المركز المتبقي: {quantity} -> {remaining_position}")
+                quantity = remaining_position
+        
+            # ⭐ التحقق من الحد الأدنى للكمية
+            adjusted_quantity = self.adjust_quantity_precision(symbol, quantity)
+            if not self.validate_quantity(symbol, adjusted_quantity):
+                logger.error(f"❌ كمية غير صالحة لـ {symbol}: {adjusted_quantity}")
+                return False
+        
             logger.info(f"🔧 جاري إغلاق وقف خسارة جزئي لـ {symbol} - المرحلة {phase}")
-            logger.info(f"📊 الكمية المصححة: {quantity:.6f}")
-            
+            logger.info(f"📊 الكمية المصححة: {adjusted_quantity:.6f}")
+            logger.info(f"📊 المركز المتبقي: {remaining_position:.6f}")
+        
+            # تحديد اتجاه الإغلاق بناءً على المركز الفعلي
+            if current_position['position_amt'] > 0:  # LONG
+                side = 'SELL'
+            else:  # SHORT
+                side = 'BUY'
+        
             order = self.client.futures_create_order(
                 symbol=symbol,
-                side='SELL' if trade['direction'] == 'LONG' else 'BUY',
+                side=side,
                 type='MARKET',
-                quantity=quantity,
+                quantity=adjusted_quantity,
                 reduceOnly=True
             )
-            
+        
             if order:
-                logger.info(f"✅ إغلاق وقف خسارة جزئي لـ {symbol} - المرحلة {phase}: {quantity:.6f}")
+                logger.info(f"✅ إغلاق وقف خسارة جزئي لـ {symbol} - المرحلة {phase}: {adjusted_quantity:.6f}")
                 return True
             return False
-            
+        
         except Exception as e:
             logger.error(f"❌ خطأ في إغلاق وقف الخسارة الجزئي لـ {symbol}: {e}")
             return False
-    
+
     def close_partial_trade(self, symbol, level, config):
-        """إغلاق جزئي للصفقة مع تصحيح الدقة"""
+        """إغلاق جزئي للصفقة مع تصحيح الدقة والتحقق من المركز"""
         try:
+            if symbol not in self.managed_trades:
+                return False
+        
             trade = self.managed_trades[symbol]
             quantity = config['quantity']
-            
-            # ⭐ التحقق من الحد الأدنى للكمية
-            if not self.validate_quantity(symbol, quantity):
-                logger.error(f"❌ كمية غير صالحة لـ {symbol}: {quantity}")
+        
+            # ⭐ التحقق من المركز الحقيقي أولاً
+            current_position = self.get_current_position(symbol)
+            if not current_position or current_position['position_amt'] == 0:
+                logger.warning(f"⚠️ لا يوجد مركز نشط لـ {symbol}")
+                if symbol in self.managed_trades:
+                    del self.managed_trades[symbol]
                 return False
-            
+        
+            # ⭐ التحقق من أن الكمية لا تتجاوز المركز المتبقي
+            remaining_position = abs(current_position['position_amt'])
+            if quantity > remaining_position:
+                logger.warning(f"⚠️ ضبط الكمية لتتناسب مع المركز المتبقي: {quantity} -> {remaining_position}")
+                quantity = remaining_position
+        
+            # ⭐ التحقق من الحد الأدنى للكمية
+            adjusted_quantity = self.adjust_quantity_precision(symbol, quantity)
+            if not self.validate_quantity(symbol, adjusted_quantity):
+                logger.error(f"❌ كمية غير صالحة لـ {symbol}: {adjusted_quantity}")
+                return False
+        
             logger.info(f"🔧 جاري إغلاق جزئي لـ {symbol} - المستوى {level}")
-            logger.info(f"📊 الكمية المصححة: {quantity:.6f}")
-            
+            logger.info(f"📊 الكمية المصححة: {adjusted_quantity:.6f}")
+            logger.info(f"📊 المركز المتبقي: {remaining_position:.6f}")
+        
+            # تحديد اتجاه الإغلاق بناءً على المركز الفعلي
+            if current_position['position_amt'] > 0:  # LONG
+                side = 'SELL'
+            else:  # SHORT
+                side = 'BUY'
+        
             order = self.client.futures_create_order(
                 symbol=symbol,
-                side='SELL' if trade['direction'] == 'LONG' else 'BUY',
+                side=side,
                 type='MARKET',
-                quantity=quantity,
+                quantity=adjusted_quantity,
                 reduceOnly=True
             )
-            
+        
             if order:
-                logger.info(f"✅ جني رباح جزئي لـ {symbol} - المستوى {level}: {quantity:.6f}")
+                logger.info(f"✅ جني رباح جزئي لـ {symbol} - المستوى {level}: {adjusted_quantity:.6f}")
                 return True
             return False
-            
+        
         except Exception as e:
             logger.error(f"❌ خطأ في الجني الجزئي لـ {symbol}: {e}")
             return False
     
     def close_entire_trade(self, symbol, reason):
-        """إغلاق كامل للصفقة مع تصحيح الدقة"""
+        """إغلاق كامل للصفقة مع تصحيح الدقة والتحقق من المركز"""
         try:
+            if symbol not in self.managed_trades:
+                return False, "الصفقة غير موجودة في الإدارة"
+        
             trade = self.managed_trades[symbol]
-            
-            total_quantity = trade['quantity']
-            closed_quantity = sum(
-                trade['take_profit_levels'][level]['quantity'] 
-                for level in trade['closed_tp_levels'] 
-                if level in trade['take_profit_levels']
-            )
-            remaining_quantity = total_quantity - closed_quantity
-            
+        
+            # ⭐ الحصول على المركز الحقيقي من Binance بدلاً من الاعتماد على الحسابات الداخلية فقط
+            current_position = self.get_current_position(symbol)
+            if not current_position:
+                logger.warning(f"⚠️ لا يوجد مركز نشط لـ {symbol} - إزالة من الإدارة")
+                if symbol in self.managed_trades:
+                    del self.managed_trades[symbol]
+                return False, "لا يوجد مركز نشط"
+        
+            position_amt = current_position['position_amt']
+            if position_amt == 0:
+                logger.warning(f"⚠️ المركز صفر لـ {symbol} - إزالة من الإدارة")
+                if symbol in self.managed_trades:
+                    del self.managed_trades[symbol]
+                return False, "المركز صفر"
+        
+            # استخدام الكمية الحقيقية من Binance
+            remaining_quantity = abs(position_amt)
+        
             if remaining_quantity > 0:
                 # ⭐ تصحيح دقة الكمية المتبقية
                 adjusted_quantity = self.adjust_quantity_precision(symbol, remaining_quantity)
-                
+            
                 if not self.validate_quantity(symbol, adjusted_quantity):
                     logger.error(f"❌ كمية غير صالحة لـ {symbol}: {adjusted_quantity}")
                     return False, "كمية غير صالحة"
-                
-                logger.info(f"🔧 جاري إغلاق كامل لـ {symbol} - الكمية المتبقية: {remaining_quantity:.6f}")
+            
+                logger.info(f"🔧 جاري إغلاق كامل لـ {symbol}")
+                logger.info(f"📊 الكمية الفعلية: {remaining_quantity:.6f}")
                 logger.info(f"📊 الكمية المصححة: {adjusted_quantity:.6f}")
-                
+                logger.info(f"📊 الاتجاه: {trade['direction']}")
+            
+                # تحديد اتجاه الإغلاق بناءً على المركز الفعلي
+                if position_amt > 0:  # LONG
+                    side = 'SELL'
+                else:  # SHORT
+                    side = 'BUY'
+            
                 order = self.client.futures_create_order(
                     symbol=symbol,
-                    side='SELL' if trade['direction'] == 'LONG' else 'BUY',
+                    side=side,
                     type='MARKET',
                     quantity=adjusted_quantity,
                     reduceOnly=True
                 )
-                
+            
                 if order:
-                    if symbol in self.managed_trades:
-                        del self.managed_trades[symbol]
-                    
-                    logger.info(f"✅ إغلاق كامل لـ {symbol}: {reason}")
+                    logger.info(f"✅ إغلاق كامل ناجح لـ {symbol}: {reason}")
+                
+                    # ⭐ التحقق من أن المركز أصبح صفراً بعد الإغلاق
+                    time.sleep(2)  # انتظار قصير للتأكد من التنفيذ
+                    final_check = self.get_current_position(symbol)
+                    if final_check and final_check['position_amt'] == 0:
+                        if symbol in self.managed_trades:
+                            del self.managed_trades[symbol]
+                        logger.info(f"✅ تأكيد إغلاق {symbol} - المركز أصبح صفراً")
+                    else:
+                        logger.warning(f"⚠️ تحذير: المركز قد لا يكون مغلقاً بالكامل لـ {symbol}")
+                
                     return True, "تم الإغلاق بنجاح"
-            
+                else:
+                    return False, "فشل إنشاء الأمر"
+        
             return False, "لا توجد كمية للإغلاق"
-            
+        
         except Exception as e:
             logger.error(f"❌ خطأ في الإغلاق الكامل لـ {symbol}: {e}")
             return False, str(e)
