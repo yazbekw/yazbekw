@@ -1275,28 +1275,31 @@ class CompleteTradeManager:
             return False
     
     def send_timeout_notification(self, trade):
-        """⭐ إرسال إشعار انتهاء وقت الصفقة"""
+        """إرسال إشعار انتهاء وقت الصفقة - مصحح"""
         try:
             current_price = self.get_current_price(trade['symbol'])
             pnl_pct = self.calculate_pnl_percentage(trade, current_price) if current_price else 0
             pnl_emoji = "🟢" if pnl_pct > 0 else "🔴"
-            
+        
             management_duration = self.get_management_duration(trade)
-            
+        
+            # ⭐ معالجة سعر الخروج بشكل منفصل
+            exit_price_text = f"${current_price:.4f}" if current_price else "N/A"
+        
             message = (
                 f"⏰ <b>انتهاء وقت الصفقة</b>\n"
                 f"العملة: {trade['symbol']}\n"
                 f"الاتجاه: {trade['direction']}\n"
                 f"سعر الدخول: ${trade['entry_price']:.4f}\n"
-                f"سعر الخروج: ${current_price:.4f if current_price else 'N/A'}\n"
+                f"سعر الخروج: {exit_price_text}\n"
                 f"الربح/الخسارة: {pnl_emoji} {pnl_pct:+.2f}%\n"
                 f"مدة الإدارة: {management_duration}\n"
                 f"السبب: انتهاء الوقت المحدد (ساعة)\n"
                 f"الوقت: {datetime.now(damascus_tz).strftime('%H:%M:%S')}"
             )
-            
+        
             return self.notifier.send_message(message)
-            
+        
         except Exception as e:
             logger.error(f"❌ خطأ في إرسال إشعار انتهاء الوقت: {e}")
             return False
