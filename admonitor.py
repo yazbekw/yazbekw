@@ -21,7 +21,7 @@ load_dotenv()
 
 # ========== الإعدادات الأساسية ==========
 TRADING_SETTINGS = {
-    'symbols': ["BNBUSDT", "ETHUSDT"],
+    'symbols': ["BNBUSDT", "ETHUSDT", "DOTUSDT"],
     'base_trade_amount': 3,
     'leverage': 50,
     'position_size': 3 * 50,
