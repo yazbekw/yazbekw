@@ -1483,7 +1483,7 @@ class TradeManagerBot:
         logger.info(f"🔍 تحقق Telegram: token={'موجود' if self.telegram_token else 'مفقود'}, chat_id={'موجود' if self.telegram_chat_id else 'مفقود'}")
         
         try:
-            self.client = Client(self.api_key, self.api_secret)
+            self.client = Client(self.api_key, self.api_secret, testnet=True)
             self.test_connection()
         except Exception as e:
             logger.error(f"❌ فشل تهيئة العميل: {e}")
