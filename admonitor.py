@@ -42,7 +42,7 @@ RISK_SETTINGS = {
     'min_stop_distance': 0.003,  # 0.3% - الحد الأدنى للمسافة
     'max_stop_distance': 0.015,  # 1.5% - الحد الأقصى للمسافة
     'emergency_stop_ratio': 0.01,  # 1% - وقف الطوارئ إذا كسر الحد الأدنى
-    'max_trade_duration_hours': 1  # ⭐ إغلاق الصفقة بعد ساعة
+    'max_trade_duration_hours': 2  # ⭐ إغلاق الصفقة بعد ساعة
 }
 
 TAKE_PROFIT_LEVELS = {
