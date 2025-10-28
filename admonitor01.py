@@ -22,10 +22,10 @@ load_dotenv()
 # ========== الإعدادات الأساسية ==========
 TRADING_SETTINGS = {
     'symbols': ["BNBUSDT", "ETHUSDT", "DOTUSDT", "LINKUSDT", "XRPUSDT", "BTCUSDT", "SOLUSDT", "DOGEUSDT"],
-    'base_trade_amount': 100,
-    'leverage': 20,
-    'position_size': 100 * 20,
-    'max_simultaneous_trades': 10,
+    'base_trade_amount': 2,
+    'leverage': 75,
+    'position_size': 2 * 75,
+    'max_simultaneous_trades': 1,
 }
 
 RISK_SETTINGS = {
@@ -1483,7 +1483,7 @@ class TradeManagerBot:
         logger.info(f"🔍 تحقق Telegram: token={'موجود' if self.telegram_token else 'مفقود'}, chat_id={'موجود' if self.telegram_chat_id else 'مفقود'}")
         
         try:
-            self.client = Client(self.api_key, self.api_secret, testnet=True)
+            self.client = Client(self.api_key, self.api_secret)
             self.test_connection()
         except Exception as e:
             logger.error(f"❌ فشل تهيئة العميل: {e}")
