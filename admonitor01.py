@@ -22,9 +22,9 @@ load_dotenv()
 # ========== الإعدادات الأساسية ==========
 TRADING_SETTINGS = {
     'symbols': ["BNBUSDT", "ETHUSDT", "DOTUSDT", "LINKUSDT"],
-    'base_trade_amount': 6,
-    'leverage': 50,
-    'position_size': 6 * 50,
+    'base_trade_amount': 8,
+    'leverage': 40,
+    'position_size': 8 * 40,
     'max_simultaneous_trades': 3,
 }
 
