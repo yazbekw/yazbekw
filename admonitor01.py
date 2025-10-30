@@ -21,11 +21,11 @@ load_dotenv()
 
 # ========== الإعدادات الأساسية ==========
 TRADING_SETTINGS = {
-    'symbols': ["BNBUSDT", "ETHUSDT"],
-    'base_trade_amount': 2,
-    'leverage': 75,
-    'position_size': 2 * 75,
-    'max_simultaneous_trades': 1,
+    'symbols': ["BNBUSDT", "ETHUSDT", "DOTUSDT", "LINKUSDT"],
+    'base_trade_amount': 6,
+    'leverage': 50,
+    'position_size': 6 * 50,
+    'max_simultaneous_trades': 3,
 }
 
 RISK_SETTINGS = {
@@ -39,9 +39,9 @@ RISK_SETTINGS = {
         'PHASE_1': {'distance_ratio': 0.5, 'allocation': 0.5},  # منتصف المسافة - 50% من المركز
         'PHASE_2': {'distance_ratio': 1.0, 'allocation': 0.5}   # المسافة الكاملة - 50% المتبقية
     },
-    'min_stop_distance': 0.003,  # 0.3% - الحد الأدنى للمسافة
-    'max_stop_distance': 0.015,  # 1.5% - الحد الأقصى للمسافة
-    'emergency_stop_ratio': 0.01,  # 1% - وقف الطوارئ إذا كسر الحد الأدنى
+    'min_stop_distance': 0.01,  # 0.3% - الحد الأدنى للمسافة
+    'max_stop_distance': 0.03,  # 1.5% - الحد الأقصى للمسافة
+    'emergency_stop_ratio': 0.02,  # 1% - وقف الطوارئ إذا كسر الحد الأدنى
     'max_trade_duration_hours': 1,  # ⭐ ساعة واحدة للفحص الأول
     'extension_duration_minutes': 30,  # ⭐ نصف ساعة للإضافة
     'final_extension_minutes': 30  # ⭐ نصف ساعة إضافية نهائية
