@@ -223,67 +223,87 @@ class DynamicStopLoss:
         """حساب وقف الخسارة مع مرحلتين وحدود دنيا/قصوى"""
         try:
             current_atr = df['atr'].iloc[-1] if not df['atr'].isna().iloc[-1] else entry_price * 0.01
-            
+        
             # حساب وقف الخسارة الأساسي
             if direction == 'LONG':
                 support_level = df['support'].iloc[-1]
                 base_stop_loss = support_level - (current_atr * self.risk_ratio)
-                
+            
                 # التأكد من الحد الأدنى والأقصى للمسافة
                 min_stop_price = entry_price * (1 - self.max_stop_distance)
                 max_stop_price = entry_price * (1 - self.min_stop_distance)
-                
+            
                 base_stop_loss = max(base_stop_loss, min_stop_price)
                 base_stop_loss = min(base_stop_loss, max_stop_price)
-                
+            
             else:  # SHORT
                 resistance_level = df['resistance'].iloc[-1]
                 base_stop_loss = resistance_level + (current_atr * self.risk_ratio)
-                
+            
                 # التأكد من الحد الأدنى والأقصى للمسافة
                 min_stop_price = entry_price * (1 + self.min_stop_distance)
                 max_stop_price = entry_price * (1 + self.max_stop_distance)
-                
+            
                 base_stop_loss = min(base_stop_loss, max_stop_price)
                 base_stop_loss = max(base_stop_loss, min_stop_price)
-            
-            # حساب مستويين لوقف الخسارة
+        
+            # حساب مستويين لوقف الخسارة - التصحيح هنا
             stop_loss_levels = {}
             for phase, config in self.stop_loss_phases.items():
                 if direction == 'LONG':
-                    # المسافة من سعر الدخول إلى وقف الخسارة الأساسي
-                    full_distance = entry_price - base_stop_loss
-                    phase_distance = full_distance * config['distance_ratio']
+                    # حساب المسافة من سعر الدخول إلى الدعم
+                    distance_to_support = entry_price - support_level
+                
+                    # استخدام نسبة distance_ratio لتحديد مسافة كل مرحلة
+                    phase_distance = distance_to_support * config['distance_ratio'] * self.risk_ratio
+                
+                    # حساب وقف الخسارة للمرحلة
                     phase_stop_loss = entry_price - phase_distance
-                    
+                
                     # التأكد من أن الوقف ليس قريباً جداً
                     min_phase_distance = entry_price * self.min_stop_distance
                     if (entry_price - phase_stop_loss) < min_phase_distance:
                         phase_stop_loss = entry_price - min_phase_distance
-                    
+                
+                    # التأكد من أن الوقف ليس بعيداً جداً
+                    max_phase_distance = entry_price * self.max_stop_distance
+                    if (entry_price - phase_stop_loss) > max_phase_distance:
+                        phase_stop_loss = entry_price - max_phase_distance
+                
                 else:  # SHORT
-                    full_distance = base_stop_loss - entry_price
-                    phase_distance = full_distance * config['distance_ratio']
+                    # حساب المسافة من سعر الدخول إلى المقاومة
+                    distance_to_resistance = resistance_level - entry_price
+                
+                    # استخدام نسبة distance_ratio لتحديد مسافة كل مرحلة
+                    phase_distance = distance_to_resistance * config['distance_ratio'] * self.risk_ratio
+                
+                    # حساب وقف الخسارة للمرحلة
                     phase_stop_loss = entry_price + phase_distance
-                    
+                
+                    # التأكد من أن الوقف ليس قريباً جداً
                     min_phase_distance = entry_price * self.min_stop_distance
                     if (phase_stop_loss - entry_price) < min_phase_distance:
                         phase_stop_loss = entry_price + min_phase_distance
                 
+                    # التأكد من أن الوقف ليس بعيداً جداً
+                    max_phase_distance = entry_price * self.max_stop_distance
+                    if (phase_stop_loss - entry_price) > max_phase_distance:
+                        phase_stop_loss = entry_price + max_phase_distance
+            
                 stop_loss_levels[phase] = {
                     'price': phase_stop_loss,
                     'distance_ratio': config['distance_ratio'],
                     'allocation': config['allocation'],
                     'quantity': None
                 }
-            
+        
             logger.info(f"💰 وقف الخسارة لـ {symbol}:")
             for phase, level in stop_loss_levels.items():
                 distance_pct = abs(entry_price - level['price']) / entry_price * 100
                 logger.info(f"   {phase}: {level['price']:.4f} (المسافة: {distance_pct:.2f}%)")
-            
+        
             return stop_loss_levels
-            
+        
         except Exception as e:
             logger.error(f"❌ خطأ في حساب وقف الخسارة: {e}")
             # استخدام قيم افتراضية آمنة في حالة الخطأ
