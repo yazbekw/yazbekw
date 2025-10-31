@@ -41,7 +41,7 @@ def send_pings():
         
         logging.info(f"📊 [الكود 1] إحصائيات الجولة: {success_count}/{total_count} ناجح")
         logging.info("⏳ [الكود 1] انتظار 3 دقائق للجولة التالية...")
-        time.sleep(2400)  # 3 دقائق
+        time.sleep(240)  # 3 دقائق
 
 # بدء النبضات في thread منفصل
 ping_thread = threading.Thread(target=send_pings, daemon=True)
