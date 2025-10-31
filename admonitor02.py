@@ -36,11 +36,11 @@ RISK_SETTINGS = {
     'position_reduction': 0.5,
     # ⭐ إعدادات وقف الخسارة المطور
     'stop_loss_phases': {
-        'PHASE_1': {'distance_ratio': 0.6, 'allocation': 0.5},  # منتصف المسافة - 50% من المركز
+        'PHASE_1': {'distance_ratio': 0.7, 'allocation': 0.5},  # منتصف المسافة - 50% من المركز
         'PHASE_2': {'distance_ratio': 1.0, 'allocation': 0.5}   # المسافة الكاملة - 50% المتبقية
     },
-    'min_stop_distance': 0.006,  # 0.3% - الحد الأدنى للمسافة
-    'max_stop_distance': 0.015,  # 1.5% - الحد الأقصى للمسافة
+    'min_stop_distance': 0.005,  # 0.3% - الحد الأدنى للمسافة
+    'max_stop_distance': 0.022,  # 1.5% - الحد الأقصى للمسافة
     'emergency_stop_ratio': 0.01,  # 1% - وقف الطوارئ إذا كسر الحد الأدنى
     'max_trade_duration_hours': 1,  # ⭐ ساعة واحدة للفحص الأول
     'extension_duration_minutes': 30,  # ⭐ نصف ساعة للإضافة
@@ -220,99 +220,101 @@ class DynamicStopLoss:
             return df_default
     
     def calculate_dynamic_stop_loss(self, symbol, entry_price, direction, df):
-        """حساب وقف الخسارة مع مرحلتين وحدود دنيا/قصوى - مصحح"""
+        """حساب وقف الخسارة مع مرحلتين - الإصلاح النهائي"""
         try:
+            # الحصول على مستويات الدعم والمقاومة
+            support_level = df['support'].iloc[-1]
+            resistance_level = df['resistance'].iloc[-1]
             current_atr = df['atr'].iloc[-1] if not df['atr'].isna().iloc[-1] else entry_price * 0.01
-            current_price = df['close'].iloc[-1]
         
-            # حساب وقف الخسارة الأساسي
+            stop_loss_levels = {}
+        
             if direction == 'LONG':
-                support_level = df['support'].iloc[-1]
-                resistance_level = df['resistance'].iloc[-1]
-            
-                # حساب المسافة من سعر الدخول إلى الدعم
+                # حساب المسافة من الدخول إلى الدعم
                 distance_to_support = entry_price - support_level
+                logger.info(f"📏 المسافة إلى الدعم: {distance_to_support:.4f}")
             
-                # حساب مستويين لوقف الخسارة - التصحيح هنا
-                stop_loss_levels = {}
                 for phase, config in self.stop_loss_phases.items():
-                    # ⭐⭐ التصحيح: استخدام نسبة distance_ratio المختلفة لكل مرحلة
-                    phase_distance = distance_to_support * config['distance_ratio']
+                    # ⭐⭐ الإصلاح: استخدام نسب مختلفة لكل مرحلة
+                    if phase == 'PHASE_1':
+                        # المرحلة الأولى: 60% من المسافة + ATR
+                        phase_distance = (distance_to_support * 0.6) + (current_atr * 0.3)
+                    else:  # PHASE_2
+                        # المرحلة الثانية: 100% من المسافة + ATR
+                        phase_distance = (distance_to_support * 1.0) + (current_atr * 0.5)
                 
-                    # إضافة عامل ATR للتقلب
-                    volatility_adjustment = current_atr * 0.5
-                    phase_distance = phase_distance * self.risk_ratio + volatility_adjustment
+                    # حساب سعر الوقف
+                    stop_price = entry_price - phase_distance
                 
-                    # حساب وقف الخسارة للمرحلة
-                    phase_stop_loss = entry_price - phase_distance
+                    # تطبيق الحدود الدنيا والقصوى
+                    min_stop = entry_price * (1 - self.max_stop_distance)  # 1.5%
+                    max_stop = entry_price * (1 - self.min_stop_distance)  # 0.6%
                 
-                    # التأكد من الحد الأدنى للمساقة
-                    min_stop_distance_price = entry_price * (1 - self.max_stop_distance)
-                    if phase_stop_loss < min_stop_distance_price:
-                        phase_stop_loss = min_stop_distance_price
-                        logger.info(f"🔧 ضبط وقف {phase} للحد الأدنى: {phase_stop_loss:.4f}")
+                    # تأكد من أن المرحلة الثانية أبعد من المرحلة الأولى
+                    if phase == 'PHASE_2' and 'PHASE_1' in stop_loss_levels:
+                        previous_stop = stop_loss_levels['PHASE_1']['price']
+                        stop_price = min(stop_price, previous_stop - (entry_price * 0.001))  # تأكد من فرق 0.1% على الأقل
                 
-                    # التأكد من الحد الأقصى للمسافة
-                    max_stop_distance_price = entry_price * (1 - self.min_stop_distance)
-                    if phase_stop_loss > max_stop_distance_price:
-                        phase_stop_loss = max_stop_distance_price
-                        logger.info(f"🔧 ضبط وقف {phase} للحد الأقصى: {phase_stop_loss:.4f}")
+                    stop_price = max(stop_price, min_stop)
+                    stop_price = min(stop_price, max_stop)
                 
                     stop_loss_levels[phase] = {
-                        'price': phase_stop_loss,
+                        'price': stop_price,
                         'distance_ratio': config['distance_ratio'],
                         'allocation': config['allocation'],
                         'quantity': None
                     }
-        
+                
+                    logger.info(f"🔧 {phase}: المسافة {phase_distance:.4f}, الوقف {stop_price:.4f}")
+                
             else:  # SHORT
-                resistance_level = df['resistance'].iloc[-1]
-                support_level = df['support'].iloc[-1]
-            
-                # حساب المسافة من سعر الدخول إلى المقاومة
+                # حساب المسافة من الدخول إلى المقاومة
                 distance_to_resistance = resistance_level - entry_price
+                logger.info(f"📏 المسافة إلى المقاومة: {distance_to_resistance:.4f}")
             
-                stop_loss_levels = {}
                 for phase, config in self.stop_loss_phases.items():
-                    # ⭐⭐ التصحيح: استخدام نسبة distance_ratio المختلفة لكل مرحلة
-                    phase_distance = distance_to_resistance * config['distance_ratio']
+                    # ⭐⭐ الإصلاح: استخدام نسب مختلفة لكل مرحلة
+                    if phase == 'PHASE_1':
+                        # المرحلة الأولى: 60% من المسافة + ATR
+                        phase_distance = (distance_to_resistance * 0.6) + (current_atr * 0.3)
+                    else:  # PHASE_2
+                        # المرحلة الثانية: 100% من المسافة + ATR
+                        phase_distance = (distance_to_resistance * 1.0) + (current_atr * 0.5)
                 
-                    # إضافة عامل ATR للتقلب
-                    volatility_adjustment = current_atr * 0.5
-                    phase_distance = phase_distance * self.risk_ratio + volatility_adjustment
+                    # حساب سعر الوقف
+                    stop_price = entry_price + phase_distance
                 
-                    # حساب وقف الخسارة للمرحلة
-                    phase_stop_loss = entry_price + phase_distance
+                    # تطبيق الحدود الدنيا والقصوى
+                    min_stop = entry_price * (1 + self.min_stop_distance)  # 0.6%
+                    max_stop = entry_price * (1 + self.max_stop_distance)  # 1.5%
                 
-                    # التأكد من الحد الأدنى للمساقة
-                    min_stop_distance_price = entry_price * (1 + self.min_stop_distance)
-                    if phase_stop_loss < min_stop_distance_price:
-                        phase_stop_loss = min_stop_distance_price
-                        logger.info(f"🔧 ضبط وقف {phase} للحد الأدنى: {phase_stop_loss:.4f}")
+                    # تأكد من أن المرحلة الثانية أبعد من المرحلة الأولى
+                    if phase == 'PHASE_2' and 'PHASE_1' in stop_loss_levels:
+                        previous_stop = stop_loss_levels['PHASE_1']['price']
+                        stop_price = max(stop_price, previous_stop + (entry_price * 0.001))  # تأكد من فرق 0.1% على الأقل
                 
-                    # التأكد من الحد الأقصى للمسافة
-                    max_stop_distance_price = entry_price * (1 + self.max_stop_distance)
-                    if phase_stop_loss > max_stop_distance_price:
-                        phase_stop_loss = max_stop_distance_price
-                        logger.info(f"🔧 ضبط وقف {phase} للحد الأقصى: {phase_stop_loss:.4f}")
+                    stop_price = min(stop_price, max_stop)
+                    stop_price = max(stop_price, min_stop)
                 
                     stop_loss_levels[phase] = {
-                        'price': phase_stop_loss,
+                        'price': stop_price,
                         'distance_ratio': config['distance_ratio'],
                         'allocation': config['allocation'],
                         'quantity': None
                     }
+                
+                    logger.info(f"🔧 {phase}: المسافة {phase_distance:.4f}, الوقف {stop_price:.4f}")
         
-            logger.info(f"💰 وقف الخسارة لـ {symbol}:")
+            # تسجيل النتائج النهائية
+            logger.info(f"💰 وقف الخسارة النهائي لـ {symbol}:")
             for phase, level in stop_loss_levels.items():
                 distance_pct = abs(entry_price - level['price']) / entry_price * 100
-                logger.info(f"   {phase}: {level['price']:.4f} (المسافة: {distance_pct:.2f}%)")
+                logger.info(f"   {phase}: ${level['price']:.4f} ({distance_pct:.2f}%)")
         
             return stop_loss_levels
-    
+        
         except Exception as e:
             logger.error(f"❌ خطأ في حساب وقف الخسارة: {e}")
-            # استخدام قيم افتراضية آمنة في حالة الخطأ
             return self.get_default_stop_loss(symbol, entry_price, direction)
     
     def get_default_stop_loss(self, symbol, entry_price, direction):
