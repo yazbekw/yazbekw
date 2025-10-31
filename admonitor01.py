@@ -39,9 +39,9 @@ RISK_SETTINGS = {
         'PHASE_1': {'distance_ratio': 0.5, 'allocation': 0.5},  # منتصف المسافة - 50% من المركز
         'PHASE_2': {'distance_ratio': 1.0, 'allocation': 0.5}   # المسافة الكاملة - 50% المتبقية
     },
-    'min_stop_distance': 0.01,  # 0.3% - الحد الأدنى للمسافة
-    'max_stop_distance': 0.03,  # 1.5% - الحد الأقصى للمسافة
-    'emergency_stop_ratio': 0.02,  # 1% - وقف الطوارئ إذا كسر الحد الأدنى
+    'min_stop_distance': 0.006,  # 0.3% - الحد الأدنى للمسافة
+    'max_stop_distance': 0.015,  # 1.5% - الحد الأقصى للمسافة
+    'emergency_stop_ratio': 0.01,  # 1% - وقف الطوارئ إذا كسر الحد الأدنى
     'max_trade_duration_hours': 1,  # ⭐ ساعة واحدة للفحص الأول
     'extension_duration_minutes': 30,  # ⭐ نصف ساعة للإضافة
     'final_extension_minutes': 30  # ⭐ نصف ساعة إضافية نهائية
