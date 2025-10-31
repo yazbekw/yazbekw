@@ -256,7 +256,7 @@ class DynamicStopLoss:
                     max_stop_distance_price = entry_price * (1 - self.min_stop_distance)
                     if phase_stop_loss > max_stop_distance_price:
                         phase_stop_loss = max_stop_distance_price
-                       logger.info(f"🔧 ضبط وقف {phase} للحد الأقصى: {phase_stop_loss:.4f}")
+                        logger.info(f"🔧 ضبط وقف {phase} للحد الأقصى: {phase_stop_loss:.4f}")
                 
                     stop_loss_levels[phase] = {
                         'price': phase_stop_loss,
