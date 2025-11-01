@@ -21,7 +21,7 @@ load_dotenv()
 
 # ========== الإعدادات الأساسية ==========
 TRADING_SETTINGS = {
-    'symbols': ["BNBUSDT", "ETHUSDT", "DOTUSDT", "LINKUSDT"],
+    'symbols': ["BNBUSDT", "ETHUSDT"],
     'base_trade_amount': 8,
     'leverage': 40,
     'position_size': 8 * 40,
@@ -49,8 +49,8 @@ RISK_SETTINGS = {
 
 # ⭐ جني الأرباح على مرحلتين فقط
 TAKE_PROFIT_LEVELS = {
-    'LEVEL_1': {'target': 0.0030, 'allocation': 0.5},  # 0.25% - 50% من المركز
-    'LEVEL_2': {'target': 0.0040, 'allocation': 0.5}   # 0.50% - 50% المتبقية
+    'LEVEL_1': {'target': 0.0020, 'allocation': 0.6},  # 0.25% - 50% من المركز
+    'LEVEL_2': {'target': 0.0025, 'allocation': 0.4}   # 0.50% - 50% المتبقية
 }
 
 damascus_tz = pytz.timezone('Asia/Damascus')
