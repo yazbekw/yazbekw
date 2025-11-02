@@ -14,8 +14,6 @@ URLS = [
     "https://ping2-r2ni.onrender.com",
     "https://ping-397j.onrender.com",
     "https://scanner-8ika.onrender.com",
-    "https://applicant-hezk.onrender.com",
-    "https://monitor-oqk7.onrender.com"
 ]
 
 def send_pings():
