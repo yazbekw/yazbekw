@@ -13,6 +13,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 URLS = [
     "https://ping1-5j34.onrender.com", 
     "https://ping-397j.onrender.com",
+    "https://eth-dhvl.onrender.com",
     "https://scanner-8ika.onrender.com",
 ]
 
