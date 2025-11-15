@@ -49,8 +49,8 @@ RISK_SETTINGS = {
 
 # ⭐ جني الأرباح على مرحلتين فقط
 TAKE_PROFIT_LEVELS = {
-    'LEVEL_1': {'target': 0.0025, 'allocation': 0.5},  # 0.25% - 50% من المركز
-    'LEVEL_2': {'target': 0.0035, 'allocation': 0.5}   # 0.50% - 50% المتبقية
+    'LEVEL_1': {'target': 0.003, 'allocation': 0.5},  # 0.25% - 50% من المركز
+    'LEVEL_2': {'target': 0.006, 'allocation': 0.5}   # 0.50% - 50% المتبقية
 }
 
 damascus_tz = pytz.timezone('Asia/Damascus')
