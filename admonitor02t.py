@@ -36,11 +36,11 @@ RISK_SETTINGS = {
     'position_reduction': 0.5,
     # ⭐ إعدادات وقف الخسارة المطور
     'stop_loss_phases': {
-        'PHASE_1': {'distance_ratio': 0.7, 'allocation': 0.5},  # منتصف المسافة - 50% من المركز
-        'PHASE_2': {'distance_ratio': 1.0, 'allocation': 0.5}   # المسافة الكاملة - 50% المتبقية
+        'PHASE_1': {'distance_ratio': 0.4, 'allocation': 0.5},  # منتصف المسافة - 50% من المركز
+        'PHASE_2': {'distance_ratio': 0.8, 'allocation': 0.5}   # المسافة الكاملة - 50% المتبقية
     },
-    'min_stop_distance': 0.005,  # 0.3% - الحد الأدنى للمسافة
-    'max_stop_distance': 0.022,  # 1.5% - الحد الأقصى للمسافة
+    'min_stop_distance': 0.003,  # 0.3% - الحد الأدنى للمسافة
+    'max_stop_distance': 0.009,  # 1.5% - الحد الأقصى للمسافة
     'emergency_stop_ratio': 0.01,  # 1% - وقف الطوارئ إذا كسر الحد الأدنى
     'max_trade_duration_hours': 1,  # ⭐ ساعة واحدة للفحص الأول
     'extension_duration_minutes': 30,  # ⭐ نصف ساعة للإضافة
