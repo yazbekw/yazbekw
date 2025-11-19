@@ -14,6 +14,7 @@ URLS = [
     "https://ping2-r2ni.onrender.com",
     "https://ping1-5j34.onrender.com",
     "https://monitor-oqk7.onrender.com",
+    "https://buy-scanner.onrender.com",
     "https://eth-dhvl.onrender.com",
     "https://scanner-8ika.onrender.com",
 ]
