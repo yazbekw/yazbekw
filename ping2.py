@@ -16,6 +16,7 @@ URLS = [
     "https://eth-dhvl.onrender.com",
     "https://buy-scanner.onrender.com",
     "https://monitor-oqk7.onrender.com",
+    "https://scanner-iae7.onrender.com",
     "https://scanner-8ika.onrender.com",
 ]
 
