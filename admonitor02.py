@@ -820,7 +820,7 @@ class CompleteTradeManager:
                 # ⭐ الحصول على السعر الحالي مع معالجة الأخطاء
                 current_price = self.get_current_price(symbol)
                 if not current_price:
-                    time.sleep(1)  # تأخير بسيط قبل المحاولة التالية
+                    time.sleep(2)  # تأخير بسيط قبل المحاولة التالية
                     continue
             
                 # 1. فحص نظام التمديد الجديد
@@ -841,7 +841,7 @@ class CompleteTradeManager:
                     self.update_dynamic_levels(symbol)
             
                 # ⭐ تأخير بين فحص الصفقات لتقليل الطلبات
-                time.sleep(2)
+                time.sleep(6)
             
             except Exception as e:
                 logger.error(f"❌ خطأ في فحص الصفقة {symbol}: {e}")
